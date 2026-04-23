@@ -1,0 +1,39 @@
+# --- ROS 2 Build Artifacts ---
+build/
+install/
+log/
+*.gv
+*.pdf
+
+# --- Python & System ---
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*$py.class
+.DS_Store
+.venv/
+env/
+venv/
+
+# --- IDE & Editors ---
+.cache/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Gazebo & Logs ---
+*.log
+/tmp/
+
+# --- AI ---
+AGENTS.md
+CLAUDE.md
+GENERAL.md
+CODEBUDDY.md
+imu_coordinate.md
+.claude/
+.codebuddy/
+
+# --- others --
+Nav2LaunchStudio_PRD.md
