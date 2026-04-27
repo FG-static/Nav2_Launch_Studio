@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QCheckBox, QLabel, QFileDialog, QPushButton,
 )
 
+from nav2_launch_studio.core.project_model import ProjectModel, SensorConfig, WizardConfig
+
 
 class ProjectWizard(QWizard):
     """新建项目的多步向导。
@@ -24,6 +26,34 @@ class ProjectWizard(QWizard):
         self.addPage(RobotTypePage())
         self.addPage(SensorConfigPage())
         self.addPage(MapSourcePage())
+
+    def to_project_model(self) -> ProjectModel:
+        """将向导收集的数据转换为 ProjectModel。"""
+        sensors = SensorConfig(
+            lidar_topic=self.field("lidar_topic") or "/scan",
+            lidar_frame=self.field("lidar_frame") or "laser_frame",
+            depth_camera_enabled=bool(self.field("depth_enabled")),
+            depth_camera_topic=self.field("depth_camera_topic") or "",
+            depth_camera_pointcloud=self.field("depth_camera_pointcloud") or "",
+            depth_camera_frame=self.field("depth_camera_frame") or "",
+            imu_enabled=bool(self.field("imu_enabled")),
+            imu_topic=self.field("imu_topic") or "",
+            imu_frame=self.field("imu_frame") or "",
+        )
+
+        wizard = WizardConfig(
+            sensors=sensors,
+            map_source=self.field("map_source") or "existing",
+            map_path=self.field("map_path") or "",
+        )
+
+        return ProjectModel(
+            project_name=self.field("project_name") or "",
+            ros2_version=self.field("ros_version") or "jazzy",
+            robot_type=self.field("robot_type") or "diff_drive",
+            namespace=self.field("namespace") or "",
+            wizard=wizard,
+        )
 
 
 class BasicInfoPage(QWizardPage):
@@ -121,7 +151,12 @@ class SensorConfigPage(QWizardPage):
         self.registerField("lidar_topic", self.lidar_topic_edit)
         self.registerField("lidar_frame", self.lidar_frame_edit)
         self.registerField("depth_enabled", self.depth_enabled)
+        self.registerField("depth_camera_topic", self.depth_topic_edit)
+        self.registerField("depth_camera_pointcloud", self.depth_pointcloud_edit)
+        self.registerField("depth_camera_frame", self.depth_frame_edit)
         self.registerField("imu_enabled", self.imu_enabled)
+        self.registerField("imu_topic", self.imu_topic_edit)
+        self.registerField("imu_frame", self.imu_frame_edit)
 
 
 class MapSourcePage(QWizardPage):
@@ -151,6 +186,7 @@ class MapSourcePage(QWizardPage):
         layout.addRow(self.no_map_radio)
 
         self.registerField("map_source", self, "mapSource")
+        self.registerField("map_path", self.map_path_edit)
 
     @property
     def mapSource(self):

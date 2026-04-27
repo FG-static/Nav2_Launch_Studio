@@ -101,8 +101,27 @@ class ProjectManager:
         返回：
             (项目名, 项目目录, 更新时间) 元组列表
         """
-        # TODO: 扫描含 .nav2studio.json 的目录，按 updated_at 排序
-        return []
+        if not os.path.isdir(base_dir):
+            return []
+
+        projects = []
+        for entry in os.scandir(base_dir):
+            if not entry.is_dir():
+                continue
+            proj_file = os.path.join(entry.path, self.PROJECT_FILE)
+            if not os.path.isfile(proj_file):
+                continue
+            try:
+                with open(proj_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                name = data.get("project_name", entry.name)
+                updated = data.get("updated_at", "")
+                projects.append((name, entry.path, updated))
+            except (json.JSONDecodeError, OSError):
+                continue
+
+        projects.sort(key=lambda p: p[2], reverse=True)
+        return projects[:limit]
 
     def _migrate(self, data: dict) -> dict:
         """对项目数据执行版本迁移。"""

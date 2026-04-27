@@ -136,8 +136,42 @@ class ProjectModel:
     @classmethod
     def from_dict(cls, data):
         """从 .nav2studio.json 字典反序列化。"""
-        # TODO: 完整反序列化及版本迁移
-        pass
+        wizard_data = data.get("wizard", {})
+        sensors_data = wizard_data.get("sensors", {})
+
+        sensors = SensorConfig(
+            lidar_topic=sensors_data.get("lidar_topic", "/scan"),
+            lidar_frame=sensors_data.get("lidar_frame", "laser_frame"),
+            depth_camera_enabled=sensors_data.get("depth_camera_enabled", False),
+            depth_camera_topic=sensors_data.get("depth_camera_topic", ""),
+            depth_camera_pointcloud=sensors_data.get("depth_camera_pointcloud", ""),
+            depth_camera_frame=sensors_data.get("depth_camera_frame", ""),
+            imu_enabled=sensors_data.get("imu_enabled", False),
+            imu_topic=sensors_data.get("imu_topic", ""),
+            imu_frame=sensors_data.get("imu_frame", ""),
+        )
+
+        wizard = WizardConfig(
+            sensors=sensors,
+            map_source=wizard_data.get("map_source", "existing"),
+            map_path=wizard_data.get("map_path", ""),
+        )
+
+        return cls(
+            version=data.get("version", "1.3"),
+            project_name=data.get("project_name", ""),
+            ros2_version=data.get("ros2_version", "jazzy"),
+            robot_type=data.get("robot_type", "diff_drive"),
+            namespace=data.get("namespace", ""),
+            created_at=data.get("created_at", ""),
+            updated_at=data.get("updated_at", ""),
+            wizard=wizard,
+            nodes=data.get("nodes", None) or None,
+            plugins=data.get("plugins", None) or None,
+            custom_plugins=data.get("custom_plugins", []),
+            bt_tree=data.get("bt_tree", "navigate_to_pose_w_replanning_and_recovery.xml"),
+            params=data.get("params", {}),
+        )
 
     def touch(self):
         """更新 updated_at 时间戳。"""

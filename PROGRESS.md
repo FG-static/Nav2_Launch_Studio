@@ -1,7 +1,7 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v1.0  
-**更新日期**：2026-04-22  
+**文档版本**：v1.1  
+**更新日期**：2026-04-27  
 **对应 PRD**：v1.3
 
 ---
@@ -21,12 +21,27 @@
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| 项目数据模型 | `core/project_model.py` | `ProjectModel` dataclass，对应 `.nav2studio.json`，含序列化 `to_dict()` |
+| 项目数据模型 | `core/project_model.py` | `ProjectModel` dataclass，对应 `.nav2studio.json`，含序列化 `to_dict()` + 反序列化 `from_dict()` |
 | 传感器配置模型 | `core/project_model.py:SensorConfig` | 激光雷达/深度相机/IMU 话题与坐标系 |
 | 向导配置模型 | `core/project_model.py:WizardConfig` | 传感器 + 地图来源 |
 | 自定义插件模型 | `core/project_model.py:CustomPlugin` | 显示名/插件类型/实例名/分类/参数列表 |
 | 默认节点配置 | `core/project_model.py:_default_nodes()` | 9 个 Nav2 节点默认启用状态与类型 |
 | 默认插件配置 | `core/project_model.py:_default_plugins()` | 规划器/控制器/平滑器/代价地图层/Recovery 默认值 |
+
+### 1.2.1 项目持久化与新建/打开项目
+
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| 项目反序列化 | `core/project_model.py:from_dict()` | 从 `.nav2studio.json` 字典还原 ProjectModel，含嵌套 SensorConfig/WizardConfig |
+| 最近项目扫描 | `core/project_manager.py:list_recent_projects()` | 扫描目录下含 `.nav2studio.json` 的子目录，按 `updated_at` 降序排序 |
+| 新建项目流程 | `ui/main_window.py:_on_new_project()` | 向导 → ProjectModel → QFileDialog 选位置 → ProjectManager.new_project() → 编辑页 |
+| 打开项目流程 | `ui/main_window.py:_on_open_project()` | QFileDialog 选目录 → ProjectManager.load() → 编辑页，含 `.nav2studio.json` 存在性检查 |
+| 启动页/编辑页切换 | `ui/main_window.py:_stack` | QStackedWidget 实现启动页与编辑页切换，打开/新建项目后自动跳转 |
+| 项目信息栏更新 | `ui/main_window.py:_show_editor_page()` | 打开项目后信息栏显示项目名/ROS2版本/机器人类型 |
+| 向导数据转换 | `ui/wizard/project_wizard.py:to_project_model()` | 从向导字段值构建 ProjectModel + SensorConfig + WizardConfig |
+| 启动页最近项目加载 | `ui/start_page.py:load_recent_projects()` | 接收项目列表数据填充 QListWidget，双击打开项目 |
+| 保存项目 | `ui/main_window.py:_on_save_project()` | 调用 ProjectManager.save()，状态栏提示 |
+| 导入项目（YAML） | `ui/main_window.py:_on_import_yaml()` | 选择 .yaml 文件 → YamlImporter 解析 → 创建新项目（导入解析待完善，UI 流程已就绪） |
 
 ### 1.3 节点依赖关系
 
@@ -52,9 +67,9 @@
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏/三栏分割/底部预览+工具栏 |
-| 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/导入按钮 |
-| 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 |
+| 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏/QStackedWidget(启动页+编辑页)/底部预览+工具栏，集成新建/打开项目功能 |
+| 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入按钮 + 双击打开 + 信号通知 MainWindow（导入按钮选择 .yaml 文件，打开按钮选择项目目录） |
+| 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
 | 节点拓扑图骨架 | `ui/widgets/node_graph.py` | QGraphicsView/Scene/Item 骨架，信号定义 |
 | 参数面板骨架 | `ui/panels/param_panel.py` | 基础/专家模式切换，按类型创建控件的方法 |
 | 插件选择器骨架 | `ui/widgets/plugin_selector.py` | Tab 分组，全局/局部代价地图分离，自定义插件对话框 |
@@ -85,16 +100,14 @@
 |------|------|---------|
 | **Jinja2 YAML 生成** | `core/yaml_generator.py:generate()` | 从 ProjectModel 渲染 Jinja2 模板，收集启用节点/插件声明/参数/代价地图层/BT树路径/自定义插件参数 |
 | **YAML 导入解析** | `core/yaml_importer.py:import_file()` | PyYAML 解析 → 识别节点命名空间 → 提取插件声明 → 匹配内置插件参数 → 未匹配入 KV 编辑器 → 自动注册自定义插件 → 生成导入报告 |
-| **项目持久化** | `core/project_manager.py` | `save()` 完善、`load()` + `from_dict()` 反序列化、`save_as()` 复制项目、`list_recent_projects()` 扫描排序 |
-| **向导→项目模型转换** | `ui/wizard/project_wizard.py` | 向导完成后的字段值映射到 `ProjectModel`，创建项目目录结构 |
+| **项目持久化完善** | `core/project_manager.py` | `save_as()` 复制项目 |
 | **插件选择器填充** | `ui/widgets/plugin_selector.py:load_plugins()` | 从 `PluginRegistry` 读取内置+自定义插件，填充到各分组 UI |
 | **参数面板填充** | `ui/panels/param_panel.py:load_params()` | 根据 schema 创建控件、填充当前值、实现基础/专家模式显隐 |
 | **参数面板取值** | `ui/panels/param_panel.py:get_params()` | 从各控件读取值返回字典，供 YAML 生成使用 |
 | **节点拓扑图渲染** | `ui/widgets/node_graph.py:NodeItem.paint()` | 绘制节点（颜色按类型）、连线、复选框、点击事件 |
 | **节点拓扑图交互** | `ui/widgets/node_graph.py:load_nodes()` | 加载节点配置、布局、依赖连线、启用/禁用+依赖检查 |
 | **BT 树模板填充** | `ui/widgets/bt_tree_selector.py:load_builtin_templates()` | 调用 `BTTreeDiscovery` 扫描目录，填充列表 |
-| **主窗口模块集成** | `ui/main_window.py:_init_ui()` | 将所有 widget 实例化并添加到布局中，连接信号槽 |
-| **启动页加载** | `ui/start_page.py:load_recent_projects()` | 扫描项目目录、排序、显示列表，双击打开项目 |
+| **主窗口模块集成** | `ui/main_window.py:_init_ui()` | 将 NodeGraph/PluginSelector/ParamPanel/BTTreeSelector 等组件实例化嵌入布局 |
 | **Schema 文件编写** | `schemas/` 各子目录 | 为所有内置插件和节点编写参数 JSON schema 文件（约 20+ 个文件） |
 | **YAML 导出写文件** | `core/project_manager.py:export_yaml()` | 生成 YAML 字符串并写入目标路径 |
 | **复制到剪贴板** | `ui/panels/yaml_preview.py:copy_btn` | 连接 `QApplication.clipboard()` 实现复制 |
