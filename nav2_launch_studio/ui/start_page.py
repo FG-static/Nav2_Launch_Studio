@@ -3,6 +3,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QListWidget, QListWidgetItem, QLabel, QFileDialog,
+    QMenu,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -19,6 +20,7 @@ class StartPageWidget(QWidget):
     open_project_requested = Signal(str)  # 项目目录路径
     project_selected = Signal(str)        # 双击选中项目目录路径
     import_yaml_requested = Signal(str)   # YAML 文件路径
+    delete_project_requested = Signal(str)  # 删除项目目录路径
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,12 +39,15 @@ class StartPageWidget(QWidget):
         self.new_project_btn = QPushButton("新建项目")
         self.import_project_btn = QPushButton("导入项目")
         self.open_project_btn = QPushButton("打开项目")
+        self.delete_project_btn = QPushButton("删除项目")
         self.new_project_btn.clicked.connect(self.new_project_requested.emit)
         self.import_project_btn.clicked.connect(self._on_import_project)
         self.open_project_btn.clicked.connect(self._on_open_project)
+        self.delete_project_btn.clicked.connect(self._on_delete_project)
         btn_layout.addWidget(self.new_project_btn)
         btn_layout.addWidget(self.import_project_btn)
         btn_layout.addWidget(self.open_project_btn)
+        btn_layout.addWidget(self.delete_project_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -50,6 +55,8 @@ class StartPageWidget(QWidget):
         layout.addWidget(QLabel("最近项目："))
         self.project_list = QListWidget()
         self.project_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.project_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.project_list.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.project_list)
 
     def load_recent_projects(self, projects):
@@ -91,3 +98,29 @@ class StartPageWidget(QWidget):
         )
         if yaml_path:
             self.import_yaml_requested.emit(yaml_path)
+
+    def _on_delete_project(self):
+        """点击"删除项目"按钮时删除列表中选中的项目。"""
+        item = self.project_list.currentItem()
+        if item:
+            proj_dir = item.data(Qt.UserRole)
+            if proj_dir:
+                self.delete_project_requested.emit(proj_dir)
+
+    def _on_context_menu(self, pos):
+        """项目列表右键菜单。"""
+        item = self.project_list.itemAt(pos)
+        if not item:
+            return
+        menu = QMenu(self)
+        open_action = menu.addAction("打开项目")
+        delete_action = menu.addAction("删除项目")
+        action = menu.exec(self.project_list.mapToGlobal(pos))
+        if action == open_action:
+            proj_dir = item.data(Qt.UserRole)
+            if proj_dir:
+                self.project_selected.emit(proj_dir)
+        elif action == delete_action:
+            proj_dir = item.data(Qt.UserRole)
+            if proj_dir:
+                self.delete_project_requested.emit(proj_dir)

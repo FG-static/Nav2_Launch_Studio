@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
         self._start_page.open_project_requested.connect(self._open_project)
         self._start_page.project_selected.connect(self._open_project)
         self._start_page.import_yaml_requested.connect(self._on_import_yaml)
+        self._start_page.delete_project_requested.connect(self._on_delete_project)
         self._stack.addWidget(self._start_page)  # index = PAGE_START
 
         # --- 编辑页 ---
@@ -199,6 +200,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction("打开项目", self._on_open_project)
         file_menu.addSeparator()
         file_menu.addAction("关闭项目", self._show_start_page)
+        file_menu.addAction("删除项目...", self._on_delete_current_project)
         file_menu.addAction("保存", self._on_save_project)
         file_menu.addAction("另存为...", self._on_save_as)
         file_menu.addSeparator()
@@ -263,10 +265,11 @@ class MainWindow(QMainWindow):
         project_model, report = importer.import_file(yaml_path)
 
         if project_model is None:
-            QMessageBox.information(
-                self, "导入功能待完善",
-                "YAML 导入解析功能尚未完全实现，敬请期待。\n\n"
-                "您可以通过新建项目向导手动创建项目。",
+            QMessageBox.warning(
+                self, "导入失败",
+                f"无法解析所选 YAML 文件。\n"
+                f"未映射项: {report.unmapped_count}\n\n"
+                f"请确保文件是有效的 nav2_params.yaml。",
             )
             return
 
@@ -278,18 +281,77 @@ class MainWindow(QMainWindow):
                 project_model, self._projects_base_dir,
             )
             self._show_editor_page()
-            self.statusBar().showMessage(
-                f"已从 YAML 导入项目：{project_dir}  "
-                f"(映射 {report.mapped_count} 项，未映射 {report.unmapped_count} 项)",
-                5000,
+            summary = (
+                f"已从 YAML 导入项目：{project_dir}\n"
+                f"映射 {report.mapped_count} 项，"
+                f"未映射 {report.unmapped_count} 项"
             )
+            self.statusBar().showMessage(summary, 5000)
         except Exception as e:
             QMessageBox.critical(self, "导入项目失败", str(e))
 
+    def _on_delete_project(self, project_dir: str):
+        """删除指定目录的项目，带二次确认。
+
+        参数：
+            project_dir: 要删除的项目目录路径
+        """
+        reply = QMessageBox.warning(
+            self, "确认删除项目",
+            f"即将永久删除项目目录：\n{project_dir}\n\n"
+            f"此操作不可恢复，确定要删除吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            # 若删除的是当前打开的项目，先切回启动页并清空
+            if (self._project_manager.project_dir and
+                    os.path.samefile(self._project_manager.project_dir, project_dir)):
+                self._project_manager.current_project = None
+                self._project_manager.project_dir = None
+                self._stack.setCurrentIndex(PAGE_START)
+
+            ProjectManager.delete_project(project_dir)
+            self._refresh_start_page()
+            self.statusBar().showMessage(f"项目已删除：{project_dir}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "删除项目失败", str(e))
+
+    def _on_delete_current_project(self):
+        """从菜单栏删除当前打开的项目。"""
+        if not self._project_manager.project_dir:
+            QMessageBox.information(self, "提示", "当前没有打开的项目。")
+            return
+        self._on_delete_project(self._project_manager.project_dir)
+
     def _on_export_yaml(self):
         """将当前配置导出为 nav2_params.yaml。"""
-        # TODO: YamlGenerator.generate() + 保存文件
-        pass
+        if not self._project_manager.current_project:
+            QMessageBox.information(self, "提示", "请先打开或创建项目。")
+            return
+
+        project = self._project_manager.current_project
+        default_name = f"{project.project_name or 'nav2_params'}.yaml"
+        if self._project_manager.project_dir:
+            default_path = os.path.join(self._project_manager.project_dir, default_name)
+        else:
+            default_path = default_name
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "导出 nav2_params.yaml", default_path,
+            "YAML 文件 (*.yaml *.yml);;所有文件 (*)",
+        )
+        if not save_path:
+            return
+
+        try:
+            self._project_manager.export_yaml(save_path)
+            self.statusBar().showMessage(f"YAML 已导出：{save_path}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", str(e))
 
     def _on_basic_mode(self):
         """切换到基础参数显示模式。"""

@@ -1,7 +1,7 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v1.1  
-**更新日期**：2026-04-27  
+**文档版本**：v1.4  
+**更新日期**：2026-04-28  
 **对应 PRD**：v1.3
 
 ---
@@ -15,18 +15,17 @@
 | ROS2 ament_python 包结构 | `package.xml`, `setup.py`, `setup.cfg` | 标准 ROS2 包，`ros2 run nav2_launch_studio gui` 启动 |
 | colcon 构建 | 根目录 | 构建通过，包可被 `ros2 pkg list` 识别 |
 | PySide6 GUI 入口 | `nav2_launch_studio/main.py` | QApplication + MainWindow 启动 |
-| 测试框架 | `pytest.ini`, `test/` | 11 个测试全部通过 |
+| 测试框架 | `pytest.ini`, `test/` | 33 个测试全部通过 |
 
 ### 1.2 数据模型
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| 项目数据模型 | `core/project_model.py` | `ProjectModel` dataclass，对应 `.nav2studio.json`，含序列化 `to_dict()` + 反序列化 `from_dict()` |
+| 项目数据模型 | `core/project_model.py` | `ProjectModel` dataclass，对应 `.nav2studio.json`，含序列化 `to_dict()` + 反序列化 `from_dict()` + 旧格式迁移 `_migrate_plugins()` |
 | 传感器配置模型 | `core/project_model.py:SensorConfig` | 激光雷达/深度相机/IMU 话题与坐标系 |
 | 向导配置模型 | `core/project_model.py:WizardConfig` | 传感器 + 地图来源 |
-| 自定义插件模型 | `core/project_model.py:CustomPlugin` | 显示名/插件类型/实例名/分类/参数列表 |
 | 默认节点配置 | `core/project_model.py:_default_nodes()` | 9 个 Nav2 节点默认启用状态与类型 |
-| 默认插件配置 | `core/project_model.py:_default_plugins()` | 规划器/控制器/平滑器/代价地图层/Recovery 默认值 |
+| 默认插件配置 | `core/project_model.py:_default_plugins()` | 规划器/控制器/平滑器/代价地图层/Recovery，detail 格式（instance_name/plugin_type/params），初始 params 为空 |
 
 ### 1.2.1 项目持久化与新建/打开项目
 
@@ -41,7 +40,47 @@
 | 向导数据转换 | `ui/wizard/project_wizard.py:to_project_model()` | 从向导字段值构建 ProjectModel + SensorConfig + WizardConfig |
 | 启动页最近项目加载 | `ui/start_page.py:load_recent_projects()` | 接收项目列表数据填充 QListWidget，双击打开项目 |
 | 保存项目 | `ui/main_window.py:_on_save_project()` | 调用 ProjectManager.save()，状态栏提示 |
-| 导入项目（YAML） | `ui/main_window.py:_on_import_yaml()` | 选择 .yaml 文件 → YamlImporter 解析 → 创建新项目（导入解析待完善，UI 流程已就绪） |
+| 导入项目（YAML） | `ui/main_window.py:_on_import_yaml()` | 选择 .yaml 文件 → YamlImporter 解析 → 创建新项目，含映射/未映射报告 |
+| 导出 YAML | `ui/main_window.py:_on_export_yaml()` | QFileDialog 选路径 → ProjectManager.export_yaml() → YamlGenerator 生成写入 |
+| 删除项目 | `ui/main_window.py:_on_delete_project()` | 二次确认对话框 → 删除当前项目则切回启动页 → ProjectManager.delete_project() → 刷新列表 |
+| 删除当前项目（菜单） | `ui/main_window.py:_on_delete_current_project()` | 文件菜单入口，删除当前打开的项目 |
+| 项目列表右键菜单 | `ui/start_page.py:_on_context_menu()` | 右键项目条目 → 打开/删除 |
+| 删除项目按钮 | `ui/start_page.py:delete_project_btn` | 启动页"删除项目"按钮 → 发射 delete_project_requested 信号 |
+
+### 1.2.2 YAML 生成与导入（用户自由设计）
+
+设计理念：用户自由，零硬编码参数，一般化导入。
+
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| Jinja2 YAML 生成 | `core/yaml_generator.py:generate()` | 从 ProjectModel 构建 `plugins` + `node_params` 上下文 → Jinja2 渲染，不依赖 PluginRegistry |
+| 模板上下文构建 | `core/yaml_generator.py:_build_context()` | 收集启用节点、plugins dict（含 `_list_key`/instance_name/plugin_type/params）、node_params（含 bt_tree 合并） |
+| 插件重复消除 | `core/yaml_generator.py:_remove_plugin_duplicates()` | 从 node_params 中移除已作为插件输出的实例名，避免模板重复输出 |
+| 递归参数渲染宏 | `templates/nav2_params.yaml.jinja2:render_params()` | 递归渲染 dict/scalar/list，跳过 `_` 前缀元数据键，零硬编码参数值 |
+| 动态插件列表键名 | `templates/nav2_params.yaml.jinja2` | 使用 `_list_key` 保留原始列表键名（如 `planner_plugin_ids`），round-trip 一致 |
+| 零硬编码模板 | `templates/nav2_params.yaml.jinja2` | 只输出结构骨架（节点名、ros__parameters、插件声明），所有参数从 model 动态渲染；未知节点自动输出 |
+| YAML 通用导入 | `core/yaml_importer.py:import_file()/import_text()` | PyYAML 解析 → 通用读取所有插件声明 → 分离插件实例与节点参数，不区分内置/自定义 |
+| 插件通用提取 | `core/yaml_importer.py:_import_plugins()` | 从 `*_plugins` 列表声明提取插件实例，支持别名（`planner_plugin_ids`），`_list_key` 记录原始键名 |
+| 未知节点自动识别 | `core/yaml_importer.py:_import_nodes()` | 含 `ros__parameters` 的顶层键自动识别为节点（如 collision_monitor, docking_server） |
+| 子插件参数保留 | `core/yaml_importer.py:_import_plugins()` | `progress_checker_plugins` 等子插件列表的实例和参数保留在 node_params 中，不丢失 |
+| 代价地图层提取 | `core/yaml_importer.py:_import_costmap_plugins()` | 从 global/local_costmap 的 plugins 字段提取层列表 |
+| 参数分离 | `core/yaml_importer.py:_import_params()` | 排除主插件列表键和实例名，剩余参数（含子插件列表和参数）存入 model.params |
+| 传感器推断 | `core/yaml_importer.py:_infer_sensors()` | 从代价地图层 plugin_type 推断（Voxel→深度相机、Obstacle→lidar 话题） |
+| 导出写文件 | `core/project_manager.py:export_yaml()` | 调用 YamlGenerator 生成 YAML 字符串并写入目标路径 |
+| 旧格式迁移 | `core/project_model.py:_migrate_plugins()` | v1.3 ID-based → v1.4 detail-based 自动转换 |
+| 生成→导入 round-trip | `test/test_yaml_importer.py:test_roundtrip()` | 验证生成再导入后插件和参数一致 |
+| 自定义插件导入 | `test/test_yaml_importer.py:test_importer_custom_plugin()` | 验证非内置插件正确读取 |
+
+**plugins 数据格式变更（v1.3 → v1.4）**：
+
+| 键 | v1.3 格式 | v1.4 格式 |
+|----|-----------|-----------|
+| 规划器 | `"global_planner": "navfn"` | `"planner": {"instance_name": "GridBased", "plugin_type": "...", "params": {}}` |
+| 控制器 | `"local_planner": "dwb"` | `"controller": {"instance_name": "FollowPath", "plugin_type": "...", "params": {}}` |
+| 平滑器 | `"path_smoother": "simple"` | `"smoother": {"instance_name": "simple_smoother", "plugin_type": "...", "params": {}}` |
+| 代价地图层 | `["static", "obstacle", "inflation"]` | `[{"instance_name": "static_layer", "plugin_type": "...", "params": {}}, ...]` |
+| Recovery | `["spin", "backup", "wait"]` | `[{"instance_name": "spin", "plugin_type": "...", "params": {}}, ...]` |
+| 自定义插件 | `custom_plugins: [...]` 列表 | 统一存入 plugins，无需单独字段 |
 
 ### 1.3 节点依赖关系
 
@@ -68,7 +107,7 @@
 | 功能 | 位置 | 说明 |
 |------|------|------|
 | 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏/QStackedWidget(启动页+编辑页)/底部预览+工具栏，集成新建/打开项目功能 |
-| 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入按钮 + 双击打开 + 信号通知 MainWindow（导入按钮选择 .yaml 文件，打开按钮选择项目目录） |
+| 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除按钮 + 双击打开 + 右键菜单（打开/删除）+ 信号通知 MainWindow |
 | 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
 | 节点拓扑图骨架 | `ui/widgets/node_graph.py` | QGraphicsView/Scene/Item 骨架，信号定义 |
 | 参数面板骨架 | `ui/panels/param_panel.py` | 基础/专家模式切换，按类型创建控件的方法 |
@@ -88,7 +127,7 @@
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| YAML 生成模板 | `templates/nav2_params.yaml.jinja2` | 包含所有 Nav2 节点的 YAML 模板骨架 |
+| YAML 生成模板 | `templates/nav2_params.yaml.jinja2` | 零硬编码参数模板，含递归 `render_params` 宏动态渲染所有参数 |
 
 ---
 
@@ -98,8 +137,6 @@
 
 | 功能 | 位置 | 详细说明 |
 |------|------|---------|
-| **Jinja2 YAML 生成** | `core/yaml_generator.py:generate()` | 从 ProjectModel 渲染 Jinja2 模板，收集启用节点/插件声明/参数/代价地图层/BT树路径/自定义插件参数 |
-| **YAML 导入解析** | `core/yaml_importer.py:import_file()` | PyYAML 解析 → 识别节点命名空间 → 提取插件声明 → 匹配内置插件参数 → 未匹配入 KV 编辑器 → 自动注册自定义插件 → 生成导入报告 |
 | **项目持久化完善** | `core/project_manager.py` | `save_as()` 复制项目 |
 | **插件选择器填充** | `ui/widgets/plugin_selector.py:load_plugins()` | 从 `PluginRegistry` 读取内置+自定义插件，填充到各分组 UI |
 | **参数面板填充** | `ui/panels/param_panel.py:load_params()` | 根据 schema 创建控件、填充当前值、实现基础/专家模式显隐 |
@@ -109,7 +146,6 @@
 | **BT 树模板填充** | `ui/widgets/bt_tree_selector.py:load_builtin_templates()` | 调用 `BTTreeDiscovery` 扫描目录，填充列表 |
 | **主窗口模块集成** | `ui/main_window.py:_init_ui()` | 将 NodeGraph/PluginSelector/ParamPanel/BTTreeSelector 等组件实例化嵌入布局 |
 | **Schema 文件编写** | `schemas/` 各子目录 | 为所有内置插件和节点编写参数 JSON schema 文件（约 20+ 个文件） |
-| **YAML 导出写文件** | `core/project_manager.py:export_yaml()` | 生成 YAML 字符串并写入目标路径 |
 | **复制到剪贴板** | `ui/panels/yaml_preview.py:copy_btn` | 连接 `QApplication.clipboard()` 实现复制 |
 
 ### 2.2 Phase 1 - MVP 次要功能
@@ -125,7 +161,7 @@
 | 参数帮助气泡 | `ui/panels/param_panel.py` | 每个参数旁「?」按钮，显示 schema 中的 description |
 | 浮点数滑块联动 | `ui/panels/param_panel.py:_create_float_widget()` | slider 与 spinbox 双向绑定，范围与步长配置 |
 | 列表参数编辑器 | `ui/panels/param_panel.py:_create_list_widget()` | 可折叠的列表编辑器，替代当前的 QLineEdit 占位 |
-| 项目删除/复制/导出zip | `ui/start_page.py` | 项目列表的右键菜单或按钮 |
+| 项目复制/导出zip | `ui/start_page.py` | 项目列表的右键菜单或按钮 |
 | 导入报告对话框 | `core/yaml_importer.py` + 新 UI | 导入后显示 ✅/⚠️/❌ 统计，可逐条修正 |
 
 ---
@@ -163,7 +199,7 @@
 | 多语言支持 (i18n) | `utils/i18n.py`（新建） | QTranslator 加载 .qm 翻译文件，支持中英文切换 |
 | 主题/样式 | `resources/styles/`（新建） | QSS 样式表，支持亮色/暗色主题 |
 | 仿真直通 | `core/sim_launcher.py`（新建） | 一键在 Gazebo/Isaac Sim 中测试当前配置 |
-| 逆向工程增强 | `core/yaml_importer.py` | 增强 YAML 导入的智能匹配率，支持更多 Nav2 配置模式 |
+| 逆向工程增强 | `core/yaml_importer.py` | 通用读取已实现，可增强命名空间前缀匹配，支持更多 Nav2 配置模式 |
 
 ---
 

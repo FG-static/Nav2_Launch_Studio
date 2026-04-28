@@ -69,14 +69,26 @@ class PluginSelectorWidget(QWidget):
         pass
 
     def get_selected_plugins(self):
-        """返回当前各分类选中的插件字典。"""
+        """返回当前各分类选中的插件字典（detail 格式）。
+
+        返回格式：
+        {
+            "planner": {"instance_name": ..., "plugin_type": ..., "params": {}},
+            "controller": {...},
+            "smoother": {...},
+            "global_costmap_layers": [{...}, ...],
+            "local_costmap_layers": [{...}, ...],
+            "recovery_behaviors": [{...}, ...],
+        }
+        """
+        # TODO: 待 load_plugins() 实现后，从选项数据中获取 plugin_type
         return {
-            "global_planner": self.planner_group.get_selected(),
-            "local_planner": self.controller_group.get_selected(),
-            "path_smoother": self.smoother_group.get_selected(),
-            "global_costmap_layers": self.global_costmap_group.get_selected(),
-            "local_costmap_layers": self.local_costmap_group.get_selected(),
-            "recovery_behaviors": self.recovery_group.get_selected(),
+            "planner": self.planner_group.get_selected_detail(),
+            "controller": self.controller_group.get_selected_detail(),
+            "smoother": self.smoother_group.get_selected_detail(),
+            "global_costmap_layers": self.global_costmap_group.get_selected_details(),
+            "local_costmap_layers": self.local_costmap_group.get_selected_details(),
+            "recovery_behaviors": self.recovery_group.get_selected_details(),
         }
 
 
@@ -123,6 +135,29 @@ class PluginGroupWidget(QGroupBox):
             return selected
         else:
             return self.combo.currentData()
+
+    def get_selected_detail(self):
+        """返回单选插件的详情字典。"""
+        data = self.combo.currentData()
+        if isinstance(data, dict):
+            return data
+        # 旧格式：仅 ID 字符串，返回占位
+        if data:
+            return {"instance_name": "", "plugin_type": data, "params": {}}
+        return None
+
+    def get_selected_details(self):
+        """返回多选插件的详情列表。"""
+        result = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.checkState() == Qt.Checked:
+                data = item.data(Qt.UserRole)
+                if isinstance(data, dict):
+                    result.append(data)
+                elif data:
+                    result.append({"instance_name": "", "plugin_type": data, "params": {}})
+        return result
 
     def _on_add_custom(self):
         """打开自定义插件注册对话框。"""

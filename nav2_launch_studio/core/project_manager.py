@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from nav2_launch_studio.core.project_model import ProjectModel
+from nav2_launch_studio.core.yaml_generator import YamlGenerator
 
 
 # 版本迁移注册表
@@ -88,8 +89,13 @@ class ProjectManager:
         参数：
             output_path: YAML 文件的目标路径
         """
-        # TODO: 调用 YamlGenerator 生成 YAML，写入文件
-        pass
+        if not self.current_project:
+            return
+
+        generator = YamlGenerator()
+        yaml_content = generator.generate(self.current_project)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(yaml_content)
 
     def list_recent_projects(self, base_dir: str, limit=10):
         """列出按 updated_at 排序的最近项目。

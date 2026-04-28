@@ -35,23 +35,15 @@ class NodeConfig:
 
 
 @dataclass
-class CustomPlugin:
-    """用户注册的自定义插件。"""
-    display_name: str = ""
-    plugin_type: str = ""
-    instance_name: str = ""
-    category: str = ""
-    params: list = field(default_factory=list)
-    description: str = ""
-
-
-@dataclass
 class ProjectModel:
     """完整项目数据模型，对应 .nav2studio.json。
 
-    对应 PRD 3.8.1。
+    plugins 结构（v1.4+）：
+    - 单选插件: {"instance_name": str, "plugin_type": str, "params": {}}
+    - 多选插件: [{"instance_name": str, "plugin_type": str, "params": {}}, ...]
+    所有插件统一存储，不区分内置/自定义，初始 params 为空。
     """
-    version: str = "1.3"
+    version: str = "1.4"
     project_name: str = ""
     ros2_version: str = "jazzy"
     robot_type: str = "diff_drive"  # "diff_drive" | "omni" | "ackermann"
@@ -61,7 +53,6 @@ class ProjectModel:
     wizard: WizardConfig = field(default_factory=WizardConfig)
     nodes: dict = field(default_factory=dict)
     plugins: dict = field(default_factory=dict)
-    custom_plugins: list = field(default_factory=list)
     bt_tree: str = "navigate_to_pose_w_replanning_and_recovery.xml"
     params: dict = field(default_factory=dict)
 
@@ -92,19 +83,41 @@ class ProjectModel:
 
     @staticmethod
     def _default_plugins():
-        """默认插件配置。"""
+        """默认插件配置（零参数，所有 params 为空字典）。"""
         return {
-            "global_planner": "navfn",
-            "local_planner": "dwb",
-            "path_smoother": "simple",
-            "global_costmap_layers": ["static", "obstacle", "inflation"],
-            "local_costmap_layers": ["obstacle", "inflation"],
-            "recovery_behaviors": ["spin", "backup", "wait"],
+            "planner": {
+                "instance_name": "GridBased",
+                "plugin_type": "nav2_navfn_planner/NavfnPlanner",
+                "params": {},
+            },
+            "controller": {
+                "instance_name": "FollowPath",
+                "plugin_type": "dwb_core::DWBLocalPlanner",
+                "params": {},
+            },
+            "smoother": {
+                "instance_name": "simple_smoother",
+                "plugin_type": "nav2_smoother::SimpleSmoother",
+                "params": {},
+            },
+            "global_costmap_layers": [
+                {"instance_name": "static_layer", "plugin_type": "nav2_costmap_2d::StaticLayer", "params": {}},
+                {"instance_name": "obstacle_layer", "plugin_type": "nav2_costmap_2d::ObstacleLayer", "params": {}},
+                {"instance_name": "inflation_layer", "plugin_type": "nav2_costmap_2d::InflationLayer", "params": {}},
+            ],
+            "local_costmap_layers": [
+                {"instance_name": "obstacle_layer", "plugin_type": "nav2_costmap_2d::ObstacleLayer", "params": {}},
+                {"instance_name": "inflation_layer", "plugin_type": "nav2_costmap_2d::InflationLayer", "params": {}},
+            ],
+            "recovery_behaviors": [
+                {"instance_name": "spin", "plugin_type": "nav2_behaviors::Spin", "params": {}},
+                {"instance_name": "backup", "plugin_type": "nav2_behaviors::BackUp", "params": {}},
+                {"instance_name": "wait", "plugin_type": "nav2_behaviors::Wait", "params": {}},
+            ],
         }
 
     def to_dict(self):
         """序列化为符合 .nav2studio.json 格式的字典。"""
-        # TODO: 完整序列化
         return {
             "version": self.version,
             "project_name": self.project_name,
@@ -128,7 +141,6 @@ class ProjectModel:
             },
             "nodes": self.nodes,
             "plugins": self.plugins,
-            "custom_plugins": self.custom_plugins,
             "bt_tree": self.bt_tree,
             "params": self.params,
         }
@@ -157,8 +169,12 @@ class ProjectModel:
             map_path=wizard_data.get("map_path", ""),
         )
 
+        plugins = data.get("plugins", None)
+        if plugins is not None:
+            plugins = cls._migrate_plugins(plugins)
+
         return cls(
-            version=data.get("version", "1.3"),
+            version=data.get("version", "1.4"),
             project_name=data.get("project_name", ""),
             ros2_version=data.get("ros2_version", "jazzy"),
             robot_type=data.get("robot_type", "diff_drive"),
@@ -167,11 +183,77 @@ class ProjectModel:
             updated_at=data.get("updated_at", ""),
             wizard=wizard,
             nodes=data.get("nodes", None) or None,
-            plugins=data.get("plugins", None) or None,
-            custom_plugins=data.get("custom_plugins", []),
+            plugins=plugins,
             bt_tree=data.get("bt_tree", "navigate_to_pose_w_replanning_and_recovery.xml"),
             params=data.get("params", {}),
         )
+
+    @staticmethod
+    def _migrate_plugins(plugins):
+        """将旧格式（v1.3 ID-based）插件配置转换为新格式（v1.4 detail-based）。
+
+        旧格式: {"global_planner": "navfn", "local_planner": "dwb", ...}
+        新格式: {"planner": {"instance_name": ..., "plugin_type": ..., "params": {}}, ...}
+        """
+        # 检测旧格式：单选插件的值是字符串
+        has_old_format = any(isinstance(v, str) for v in plugins.values())
+        if not has_old_format:
+            return plugins
+
+        from nav2_launch_studio.core.plugin_registry import PluginRegistry
+        new_plugins = {}
+
+        # 单选插件迁移
+        for old_key, new_key, registry, default_inst in [
+            ("global_planner", "planner", PluginRegistry.BUILTIN_PLANNERS, "GridBased"),
+            ("local_planner", "controller", PluginRegistry.BUILTIN_CONTROLLERS, "FollowPath"),
+            ("path_smoother", "smoother", PluginRegistry.BUILTIN_SMOOTHERS, "simple_smoother"),
+        ]:
+            pid = plugins.get(old_key, "")
+            entry = registry.get(pid, {})
+            if entry:
+                new_plugins[new_key] = {
+                    "instance_name": entry.get("instance_name", default_inst),
+                    "plugin_type": entry["plugin_type"],
+                    "params": {},
+                }
+            elif pid:
+                # 自定义插件：pid 即 plugin_type
+                new_plugins[new_key] = {
+                    "instance_name": default_inst,
+                    "plugin_type": pid,
+                    "params": {},
+                }
+
+        # 多选插件迁移
+        for old_key, registry, suffix in [
+            ("global_costmap_layers", PluginRegistry.BUILTIN_COSTMAP_LAYERS, "_layer"),
+            ("local_costmap_layers", PluginRegistry.BUILTIN_COSTMAP_LAYERS, "_layer"),
+            ("recovery_behaviors", PluginRegistry.BUILTIN_RECOVERIES, ""),
+        ]:
+            ids = plugins.get(old_key, [])
+            items = []
+            for pid in ids:
+                if isinstance(pid, dict):
+                    items.append(pid)
+                    continue
+                entry = registry.get(pid, {})
+                if entry:
+                    inst_name = pid + suffix if suffix else pid
+                    items.append({
+                        "instance_name": inst_name,
+                        "plugin_type": entry["plugin_type"],
+                        "params": {},
+                    })
+                else:
+                    items.append({
+                        "instance_name": pid,
+                        "plugin_type": pid,
+                        "params": {},
+                    })
+            new_plugins[old_key] = items
+
+        return new_plugins
 
     def touch(self):
         """更新 updated_at 时间戳。"""
