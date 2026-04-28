@@ -111,6 +111,14 @@ class StartPageWidget(QWidget):
             if proj_dir:
                 self.delete_project_requested.emit(proj_dir)
 
+    def _on_duplicate_project(self):
+        """点击"复制项目"按钮时复制列表中选中的项目。"""
+        item = self.project_list.currentItem()
+        if item:
+            proj_dir = item.data(Qt.UserRole)
+            if proj_dir:
+                self.duplicate_project_requested.emit(proj_dir)
+
     def _on_context_menu(self, pos):
         """项目列表右键菜单。"""
         item = self.project_list.itemAt(pos)
