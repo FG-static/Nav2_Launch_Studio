@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         self._start_page.project_selected.connect(self._open_project)
         self._start_page.import_yaml_requested.connect(self._on_import_yaml)
         self._start_page.delete_project_requested.connect(self._on_delete_project)
+        self._start_page.duplicate_project_requested.connect(self._on_duplicate_project_from_list)
         self._stack.addWidget(self._start_page)  # index = PAGE_START
 
         # --- 编辑页 ---
@@ -164,6 +165,58 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "创建项目失败", str(e))
 
+    def _on_duplicate_project(self):
+        """复制当前项目。"""
+        if not self._project_manager.project_dir:
+            QMessageBox.information(self, "提示", "当前没有打开的项目。")
+            return
+
+        os.makedirs(self._projects_base_dir, exist_ok=True)
+
+        # 选择父目录
+        base_dir = QFileDialog.getExistingDirectory(
+            self, "选择项目保存位置", self._projects_base_dir,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+        if not base_dir:
+            return
+
+        try:
+            # 先保存当前修改
+            self._project_manager.save()
+            new_dir = ProjectManager.duplicate_project(
+                self._project_manager.project_dir, base_dir,
+            )
+            # 打开复制后的项目
+            self._project_manager.load(new_dir)
+            self._show_editor_page()
+            self._refresh_start_page()
+            self.statusBar().showMessage(f"项目已复制：{new_dir}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "复制项目失败", str(e))
+
+    def _on_duplicate_project_from_list(self, project_dir: str):
+        """从启动页列表复制指定项目。"""
+        os.makedirs(self._projects_base_dir, exist_ok=True)
+
+        # 选择父目录
+        base_dir = QFileDialog.getExistingDirectory(
+            self, "选择项目保存位置", self._projects_base_dir,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+        if not base_dir:
+            return
+
+        try:
+            new_dir = ProjectManager.duplicate_project(project_dir, base_dir)
+            # 打开复制后的项目
+            self._project_manager.load(new_dir)
+            self._show_editor_page()
+            self._refresh_start_page()
+            self.statusBar().showMessage(f"项目已复制：{new_dir}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "复制项目失败", str(e))
+
     def _on_open_project(self):
         """打开已有的 .nav2studio.json 项目。"""
         proj_dir = QFileDialog.getExistingDirectory(
@@ -203,6 +256,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction("删除项目...", self._on_delete_current_project)
         file_menu.addAction("保存", self._on_save_project)
         file_menu.addAction("另存为...", self._on_save_as)
+        file_menu.addAction("复制项目...", self._on_duplicate_project)
         file_menu.addSeparator()
         file_menu.addAction("导入 nav2_params.yaml", lambda: self._on_import_yaml())
         file_menu.addSeparator()
@@ -244,8 +298,27 @@ class MainWindow(QMainWindow):
 
     def _on_save_as(self):
         """将当前项目另存到新位置。"""
-        # TODO: 文件对话框 + ProjectManager.save_as()
-        pass
+        if not self._project_manager.current_project:
+            QMessageBox.information(self, "提示", "请先打开或创建项目。")
+            return
+
+        os.makedirs(self._projects_base_dir, exist_ok=True)
+
+        # 选择父目录
+        base_dir = QFileDialog.getExistingDirectory(
+            self, "选择另存为位置", self._projects_base_dir,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+        if not base_dir:
+            return
+
+        try:
+            new_dir = self._project_manager.save_as(base_dir)
+            self._show_editor_page()
+            self._refresh_start_page()
+            self.statusBar().showMessage(f"项目已另存为：{new_dir}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "另存为失败", str(e))
 
     def _on_import_yaml(self, yaml_path: str = ""):
         """从 nav2_params.yaml 文件导入配置，创建新项目。

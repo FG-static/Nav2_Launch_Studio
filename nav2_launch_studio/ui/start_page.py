@@ -21,6 +21,7 @@ class StartPageWidget(QWidget):
     project_selected = Signal(str)        # 双击选中项目目录路径
     import_yaml_requested = Signal(str)   # YAML 文件路径
     delete_project_requested = Signal(str)  # 删除项目目录路径
+    duplicate_project_requested = Signal(str)  # 复制项目目录路径
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,14 +41,17 @@ class StartPageWidget(QWidget):
         self.import_project_btn = QPushButton("导入项目")
         self.open_project_btn = QPushButton("打开项目")
         self.delete_project_btn = QPushButton("删除项目")
+        self.duplicate_project_btn = QPushButton("复制项目")
         self.new_project_btn.clicked.connect(self.new_project_requested.emit)
         self.import_project_btn.clicked.connect(self._on_import_project)
         self.open_project_btn.clicked.connect(self._on_open_project)
         self.delete_project_btn.clicked.connect(self._on_delete_project)
+        self.duplicate_project_btn.clicked.connect(self._on_duplicate_project)
         btn_layout.addWidget(self.new_project_btn)
         btn_layout.addWidget(self.import_project_btn)
         btn_layout.addWidget(self.open_project_btn)
         btn_layout.addWidget(self.delete_project_btn)
+        btn_layout.addWidget(self.duplicate_project_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -114,12 +118,17 @@ class StartPageWidget(QWidget):
             return
         menu = QMenu(self)
         open_action = menu.addAction("打开项目")
+        duplicate_action = menu.addAction("复制项目")
         delete_action = menu.addAction("删除项目")
         action = menu.exec(self.project_list.mapToGlobal(pos))
         if action == open_action:
             proj_dir = item.data(Qt.UserRole)
             if proj_dir:
                 self.project_selected.emit(proj_dir)
+        elif action == duplicate_action:
+            proj_dir = item.data(Qt.UserRole)
+            if proj_dir:
+                self.duplicate_project_requested.emit(proj_dir)
         elif action == delete_action:
             proj_dir = item.data(Qt.UserRole)
             if proj_dir:

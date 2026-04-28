@@ -46,6 +46,13 @@
 | 删除当前项目（菜单） | `ui/main_window.py:_on_delete_current_project()` | 文件菜单入口，删除当前打开的项目 |
 | 项目列表右键菜单 | `ui/start_page.py:_on_context_menu()` | 右键项目条目 → 打开/删除 |
 | 删除项目按钮 | `ui/start_page.py:delete_project_btn` | 启动页"删除项目"按钮 → 发射 delete_project_requested 信号 |
+| 复制项目 | `core/project_manager.py:duplicate_project()` | 静态方法，复制整个项目目录到新位置，自动追加"_副本"后缀（重名加序号），更新项目名和时间戳 |
+| 复制项目（启动页） | `ui/main_window.py:_on_duplicate_project_from_list()` | 从启动页按钮/右键菜单触发 → 选择保存位置 → duplicate_project() → 打开新项目 |
+| 复制项目（菜单） | `ui/main_window.py:_on_duplicate_project()` | 文件菜单入口，复制当前打开的项目 → 保存后复制 → 打开新项目 |
+| 复制项目按钮 | `ui/start_page.py:duplicate_project_btn` | 启动页"复制项目"按钮 → 发射 duplicate_project_requested 信号 |
+| 右键菜单复制 | `ui/start_page.py:_on_context_menu()` | 右键项目条目 → 打开/复制/删除 |
+| 另存为 | `core/project_manager.py:save_as()` | 将当前项目保存到新目录，可修改项目名，切换工作目录到新位置 |
+| 另存为（菜单） | `ui/main_window.py:_on_save_as()` | 文件菜单入口 → 选择保存位置 → save_as() → 更新信息栏 |
 
 ### 1.2.2 YAML 生成与导入（用户自由设计）
 
@@ -107,7 +114,7 @@
 | 功能 | 位置 | 说明 |
 |------|------|------|
 | 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏/QStackedWidget(启动页+编辑页)/底部预览+工具栏，集成新建/打开项目功能 |
-| 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除按钮 + 双击打开 + 右键菜单（打开/删除）+ 信号通知 MainWindow |
+| 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除/复制按钮 + 双击打开 + 右键菜单（打开/复制/删除）+ 信号通知 MainWindow |
 | 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
 | 节点拓扑图骨架 | `ui/widgets/node_graph.py` | QGraphicsView/Scene/Item 骨架，信号定义 |
 | 参数面板骨架 | `ui/panels/param_panel.py` | 基础/专家模式切换，按类型创建控件的方法 |
@@ -137,7 +144,7 @@
 
 | 功能 | 位置 | 详细说明 |
 |------|------|---------|
-| **项目持久化完善** | `core/project_manager.py` | `save_as()` 复制项目 |
+| **项目持久化完善** | `core/project_manager.py` | ~~`save_as()` 复制项目~~ ✅ 已实现 |
 | **插件选择器填充** | `ui/widgets/plugin_selector.py:load_plugins()` | 从 `PluginRegistry` 读取内置+自定义插件，填充到各分组 UI |
 | **参数面板填充** | `ui/panels/param_panel.py:load_params()` | 根据 schema 创建控件、填充当前值、实现基础/专家模式显隐 |
 | **参数面板取值** | `ui/panels/param_panel.py:get_params()` | 从各控件读取值返回字典，供 YAML 生成使用 |
@@ -161,7 +168,7 @@
 | 参数帮助气泡 | `ui/panels/param_panel.py` | 每个参数旁「?」按钮，显示 schema 中的 description |
 | 浮点数滑块联动 | `ui/panels/param_panel.py:_create_float_widget()` | slider 与 spinbox 双向绑定，范围与步长配置 |
 | 列表参数编辑器 | `ui/panels/param_panel.py:_create_list_widget()` | 可折叠的列表编辑器，替代当前的 QLineEdit 占位 |
-| 项目复制/导出zip | `ui/start_page.py` | 项目列表的右键菜单或按钮 |
+| 项目复制/导出zip | `ui/start_page.py` | ~~复制项目~~ ✅ 已实现；导出zip待实现 |
 | 导入报告对话框 | `core/yaml_importer.py` + 新 UI | 导入后显示 ✅/⚠️/❌ 统计，可逐条修正 |
 
 ---

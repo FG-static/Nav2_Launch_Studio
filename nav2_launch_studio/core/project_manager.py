@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -62,10 +63,44 @@ class ProjectManager:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.current_project.to_dict(), f, indent=2, ensure_ascii=False)
 
-    def save_as(self, new_dir: str):
-        """将项目另存到新目录。"""
-        # TODO: 复制项目到新位置
-        pass
+    def save_as(self, new_dir: str, new_name: str = ""):
+        """将当前项目另存到新目录。
+
+        参数：
+            new_dir: 新项目目录的父目录
+            new_name: 可选的新项目名，为空则保持原名
+
+        返回：
+            新项目目录路径
+        """
+        if not self.current_project or not self.project_dir:
+            return ""
+
+        # 先保存当前修改
+        self.save()
+
+        # 确定新项目名和目录
+        project_name = new_name or self.current_project.project_name
+        dest_dir = os.path.join(new_dir, project_name)
+
+        # 复制整个项目目录
+        shutil.copytree(self.project_dir, dest_dir)
+
+        # 如果改了项目名，更新 .nav2studio.json 中的 project_name
+        if new_name and new_name != self.current_project.project_name:
+            proj_file = os.path.join(dest_dir, self.PROJECT_FILE)
+            with open(proj_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data["project_name"] = new_name
+            with open(proj_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+        # 切换到新项目
+        self.project_dir = dest_dir
+        self.current_project.project_name = project_name
+        self.save()
+
+        return dest_dir
 
     def load(self, project_dir: str) -> ProjectModel:
         """从包含 .nav2studio.json 的目录加载项目。
@@ -136,6 +171,49 @@ class ProjectManager:
             data = MIGRATIONS[version](data)
             version = data.get("version", "1.3")
         return data
+
+    @staticmethod
+    def duplicate_project(source_dir: str, base_dir: str) -> str:
+        """复制项目到新目录。
+
+        参数：
+            source_dir: 源项目目录路径
+            base_dir: 新项目目录的父目录
+
+        返回：
+            新项目目录路径
+        """
+        # 读取源项目信息
+        proj_file = os.path.join(source_dir, ProjectManager.PROJECT_FILE)
+        with open(proj_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        original_name = data.get("project_name", os.path.basename(source_dir))
+        new_name = original_name + "_副本"
+
+        # 避免重名：如果已存在则追加序号
+        dest_dir = os.path.join(base_dir, new_name)
+        counter = 1
+        while os.path.exists(dest_dir):
+            counter += 1
+            new_name = f"{original_name}_副本{counter}"
+            dest_dir = os.path.join(base_dir, new_name)
+
+        # 复制整个项目目录
+        shutil.copytree(source_dir, dest_dir)
+
+        # 更新项目名和时间戳
+        proj_file_dest = os.path.join(dest_dir, ProjectManager.PROJECT_FILE)
+        with open(proj_file_dest, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["project_name"] = new_name
+        now = datetime.now().isoformat()
+        data["created_at"] = now
+        data["updated_at"] = now
+        with open(proj_file_dest, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        return dest_dir
 
     @staticmethod
     def delete_project(project_dir: str):
