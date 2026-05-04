@@ -134,13 +134,38 @@ class ParamPanelWidget(QWidget):
         self.yaml_apply_btn.setVisible(not is_basic)
 
         if not is_basic:
+            # 切到专家模式：先同步表单控件值到快照，再更新 YAML 编辑器
+            self._sync_params_from_form()
             self._update_yaml_editor()
             self._hint_label.setText("专家模式：直接编辑 YAML 文本，点击「应用 YAML 更改」同步到项目")
         else:
-            # 切回基础模式：从当前快照刷新表单
+            # 切回基础模式：先尝试从 YAML 编辑器同步未保存的修改
+            self._sync_params_from_yaml_editor()
             if self._current_node:
                 self.load_params(self._current_node, self._current_params)
             self._hint_label.setText("")
+
+    def _sync_params_from_yaml_editor(self):
+        """将 YAML 编辑器内容解析并同步到快照（不触发 model 更新）。"""
+        if not self._current_node or not self.yaml_editor.isVisible():
+            return
+        text = self.yaml_editor.toPlainText().strip()
+        if not text or text == "# 无参数":
+            self._current_params = {}
+            return
+        import yaml
+        try:
+            new_params = yaml.safe_load(text)
+            if isinstance(new_params, dict):
+                self._current_params = new_params
+        except yaml.YAMLError:
+            pass  # YAML 有误，保留原快照
+
+    def _sync_params_from_form(self):
+        """将当前表单控件的值同步到 _current_params 快照。"""
+        if not self._current_node:
+            return
+        self._current_params = self.get_params()
 
     def _update_yaml_editor(self):
         """将当前参数同步到 YAML 编辑器。"""
