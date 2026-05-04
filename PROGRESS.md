@@ -1,6 +1,6 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v1.9  
+**文档版本**：v2.0  
 **更新日期**：2026-05-04  
 **对应 PRD**：v1.3
 
@@ -119,7 +119,7 @@
 | 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除/复制按钮 + 双击打开 + 右键菜单（打开/复制/删除）+ 信号通知 MainWindow |
 | 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
 | 节点拓扑图 | `ui/widgets/node_graph.py` | 拓扑排序分层布局、NodeItem 绘制（颜色按类型+禁用态）、复选框交互、EdgeItem 有向连线（带箭头）、依赖检查警告、与 main_window 信号集成 |
-| 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list）、load_params/get_params、值变更信号实时同步 ProjectModel、基础/专家模式切换 |
+| 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list）、load_params/get_params、值变更信号实时同步 ProjectModel、基础模式（全部参数表单编辑）/专家模式（YAML 文本编辑器）、与 main_window 菜单集成 |
 | 插件选择器 | `ui/widgets/plugin_selector.py` | Tab 分组（规划器/控制器/平滑器/代价地图/Recovery）、从 PluginRegistry 填充内置+自定义插件、set_selected_plugins 从模型设置选中、set_visible_tabs 按项目数据显示/隐藏 tab、get_selected_plugins 返回 detail 格式、自定义插件注册对话框（自动锁定当前 tab 分类）、与 main_window 信号集成 |
 | BT 树选择器 | `ui/widgets/bt_tree_selector.py` | 从 BTTreeDiscovery 扫描模板填充列表、自定义 BT 树文件选择、set_current_tree 从模型设置选中、Groot2 检测与预览按钮、与 main_window 信号集成 |
 | YAML 预览骨架 | `ui/panels/yaml_preview.py` | 只读文本区 + 复制/导出按钮 |
@@ -165,7 +165,7 @@
 |------|------|---------|
 | 工作空间浏览按钮 | `ui/wizard/project_wizard.py:BasicInfoPage` | workspace_browse_btn 点击打开 QFileDialog |
 | 地图文件浏览按钮 | `ui/wizard/project_wizard.py:MapSourcePage` | map_browse_btn 点击打开 QFileDialog |
-| Groot2 检测与预览 | `ui/widgets/bt_tree_selector.py:detect_groot2()` | 启动时检测，显示/隐藏按钮，subprocess 启动 |
+| ~~Groot2 检测与预览~~ | `ui/widgets/bt_tree_selector.py:detect_groot2()` | ✅ 已实现：支持 PATH 命令和 AppImage 检测，subprocess 启动 |
 | 自定义插件注册提交 | `ui/widgets/plugin_selector.py:CustomPluginDialog` | 对话框 OK 后写入 PluginRegistry，刷新列表 |
 | YAML 粘贴导入 | `ui/widgets/key_value_editor.py:_on_yaml_import()` | 解析 YAML 文本为 KV 条目填充表格 |
 | 参数校验 | `ui/panels/param_panel.py` | 超范围黄色警告、非法值红色错误、阻止生成 |

@@ -2,9 +2,9 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QScrollArea,
-    QSlider, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QComboBox, QLineEdit, QPushButton, QLabel,
-    QGroupBox, QHBoxLayout, QSizePolicy,
+    QDoubleSpinBox, QSpinBox, QCheckBox,
+    QLineEdit, QPushButton, QLabel,
+    QHBoxLayout, QTextEdit,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -14,10 +14,10 @@ class ParamPanelWidget(QWidget):
 
     对应 PRD 3.4：
     - 点击节点拓扑图中的节点触发
-    - 参数 UI 控件根据类型生成（滑块、开关、下拉等）
-    - 两种显示模式：基础（5-10个关键参数）/ 专家（全部参数）
-    - 帮助气泡显示文档摘要
-    - 超出范围显示黄色警告，非法值显示红色错误
+    - 参数 UI 控件根据类型生成
+    - 两种显示模式：
+      - 基础模式：全部参数用表单控件编辑
+      - 专家模式：直接编辑原始 YAML 文本
     """
 
     # 信号
@@ -35,18 +35,19 @@ class ParamPanelWidget(QWidget):
     def _init_ui(self):
         layout = QVBoxLayout(self)
 
-        # 标题
+        # 标题栏
+        header_layout = QHBoxLayout()
         self.node_label = QLabel("未选择节点")
         self.node_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-        layout.addWidget(self.node_label)
-
-        # 模式切换
+        header_layout.addWidget(self.node_label)
+        header_layout.addStretch()
         self.mode_btn = QPushButton("专家模式")
         self.mode_btn.setCheckable(True)
         self.mode_btn.toggled.connect(self._toggle_mode)
-        layout.addWidget(self.mode_btn)
+        header_layout.addWidget(self.mode_btn)
+        layout.addLayout(header_layout)
 
-        # 可滚动参数区域
+        # 基础模式：可滚动参数表单
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.param_container = QWidget()
@@ -55,6 +56,19 @@ class ParamPanelWidget(QWidget):
         self.scroll.setWidget(self.param_container)
         layout.addWidget(self.scroll)
 
+        # 专家模式：YAML 文本编辑器（默认隐藏）
+        self.yaml_editor = QTextEdit()
+        self.yaml_editor.setPlaceholderText("在此直接编辑 YAML 参数...")
+        self.yaml_editor.setFontFamily("monospace")
+        self.yaml_editor.setVisible(False)
+        layout.addWidget(self.yaml_editor)
+
+        # 专家模式应用按钮（默认隐藏）
+        self.yaml_apply_btn = QPushButton("应用 YAML 更改")
+        self.yaml_apply_btn.clicked.connect(self._apply_yaml_changes)
+        self.yaml_apply_btn.setVisible(False)
+        layout.addWidget(self.yaml_apply_btn)
+
         # 底部提示
         self._hint_label = QLabel("")
         self._hint_label.setStyleSheet("color: #888; font-size: 11px;")
@@ -62,13 +76,7 @@ class ParamPanelWidget(QWidget):
         layout.addWidget(self._hint_label)
 
     def load_params(self, node_name: str, params: dict = None):
-        """为节点加载参数控件。
-
-        参数：
-            node_name: Nav2 节点名称
-            params: 当前参数值字典 {key: value, ...}
-        """
-        # 清除已有控件
+        """为节点加载参数控件。"""
         self._clear_params()
 
         self._current_node = node_name
@@ -79,6 +87,7 @@ class ParamPanelWidget(QWidget):
         if not params:
             self._hint_label.setText("该节点暂无自定义参数。\n"
                                      "可通过 YAML 导入或键值编辑器添加参数。")
+            self.yaml_editor.setPlainText("")
             return
 
         self._hint_label.setText("")
@@ -90,6 +99,8 @@ class ParamPanelWidget(QWidget):
             self._param_types[key] = dtype
             self.param_layout.addRow(key, widget)
 
+        self._update_yaml_editor()
+
     def get_params(self) -> dict:
         """返回当前参数值字典。"""
         result = {}
@@ -97,12 +108,87 @@ class ParamPanelWidget(QWidget):
             result[key] = self._read_widget_value(widget, self._param_types.get(key, "string"))
         return result
 
+    def set_mode(self, mode: str):
+        """外部设置显示模式。"""
+        self._mode = mode
+        self.mode_btn.setChecked(mode == "expert")
+        self.mode_btn.setText("基础模式" if mode == "expert" else "专家模式")
+        self._apply_mode()
+        self.mode_changed.emit(mode)
+
     def _clear_params(self):
         """清除参数布局中的所有控件。"""
         while self.param_layout.rowCount() > 0:
             self.param_layout.removeRow(0)
         self._param_widgets.clear()
         self._param_types.clear()
+
+    def _apply_mode(self):
+        """根据当前模式切换表单/YAML 编辑器的可见性。"""
+        is_basic = self._mode == "basic"
+        self.scroll.setVisible(is_basic)
+        self.yaml_editor.setVisible(not is_basic)
+        self.yaml_apply_btn.setVisible(not is_basic)
+
+        if not is_basic:
+            self._update_yaml_editor()
+            self._hint_label.setText("专家模式：直接编辑 YAML 文本，点击「应用 YAML 更改」同步到项目")
+        else:
+            self._hint_label.setText("")
+
+    def _update_yaml_editor(self):
+        """将当前参数同步到 YAML 编辑器。"""
+        params = self.get_params()
+        if params:
+            import yaml
+            text = yaml.dump(params, default_flow_style=False, allow_unicode=True)
+            self.yaml_editor.setPlainText(text)
+        else:
+            self.yaml_editor.setPlainText("# 无参数")
+
+    def _apply_yaml_changes(self):
+        """将 YAML 编辑器内容解析并发射参数变更信号。"""
+        text = self.yaml_editor.toPlainText().strip()
+        if not text or text == "# 无参数":
+            return
+
+        import yaml
+        try:
+            new_params = yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            self._hint_label.setText(f"YAML 解析错误: {e}")
+            return
+
+        if not isinstance(new_params, dict):
+            self._hint_label.setText("YAML 内容必须是字典格式")
+            return
+
+        # 更新内部控件值（保持基础模式同步）
+        for key, value in new_params.items():
+            if key in self._param_widgets:
+                self._set_widget_value(self._param_widgets[key], self._param_types.get(key, "string"), value)
+
+        # 发射变更信号
+        for key, value in new_params.items():
+            if self._current_node:
+                self.param_changed.emit(self._current_node, key, value)
+
+        self._hint_label.setText("YAML 更改已应用")
+
+    def _set_widget_value(self, widget: QWidget, dtype: str, value):
+        """设置控件的值。"""
+        if isinstance(widget, QCheckBox):
+            widget.setChecked(bool(value))
+        elif isinstance(widget, QSpinBox):
+            widget.setValue(int(value) if value is not None else 0)
+        elif isinstance(widget, QDoubleSpinBox):
+            widget.setValue(float(value) if value is not None else 0.0)
+        elif isinstance(widget, QLineEdit):
+            if dtype == "list":
+                import yaml
+                widget.setText(yaml.dump(value, default_flow_style=True).strip())
+            else:
+                widget.setText(str(value) if value is not None else "")
 
     def _detect_type(self, value) -> str:
         """根据 Python 值自动检测参数类型。"""
@@ -194,4 +280,5 @@ class ParamPanelWidget(QWidget):
         """在基础和专家显示模式之间切换。"""
         self._mode = "expert" if checked else "basic"
         self.mode_btn.setText("基础模式" if checked else "专家模式")
+        self._apply_mode()
         self.mode_changed.emit(self._mode)

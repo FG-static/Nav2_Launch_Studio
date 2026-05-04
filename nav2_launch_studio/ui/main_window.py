@@ -456,13 +456,13 @@ class MainWindow(QMainWindow):
 
     def _on_basic_mode(self):
         """切换到基础参数显示模式。"""
-        # TODO: 发送信号到 ParamPanel
-        pass
+        self._param_panel.set_mode("basic")
+        self.statusBar().showMessage("已切换到基础模式", 2000)
 
     def _on_expert_mode(self):
         """切换到专家参数显示模式。"""
-        # TODO: 发送信号到 ParamPanel
-        pass
+        self._param_panel.set_mode("expert")
+        self.statusBar().showMessage("已切换到专家模式", 2000)
 
     def _on_node_clicked(self, node_name: str):
         """节点被点击，打开对应参数面板。"""
