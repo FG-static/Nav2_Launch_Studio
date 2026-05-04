@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QTabWidget, QStatusBar, QMenuBar,
     QToolBar, QLabel, QStackedWidget, QFileDialog,
-    QMessageBox,
+    QMessageBox, QInputDialog, QLineEdit,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
@@ -376,13 +376,29 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # 确保基础目录存在
-        os.makedirs(self._projects_base_dir, exist_ok=True)
+        # 默认项目名：YAML 文件名不含扩展名
+        default_name = os.path.splitext(os.path.basename(yaml_path))[0]
+
+        # 让用户选择保存目录
+        save_dir = QFileDialog.getExistingDirectory(
+            self, "选择项目保存位置", self._projects_base_dir,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+        if not save_dir:
+            return
+
+        # 让用户输入项目名
+        project_name, ok = QInputDialog.getText(
+            self, "项目名称", "请输入项目名称：",
+            QLineEdit.Normal, default_name,
+        )
+        if not ok or not project_name.strip():
+            return
+
+        project_model.project_name = project_name.strip()
 
         try:
-            project_dir = self._project_manager.new_project(
-                project_model, self._projects_base_dir,
-            )
+            project_dir = self._project_manager.new_project(project_model, save_dir)
             self._show_editor_page()
             summary = (
                 f"已从 YAML 导入项目：{project_dir}\n"

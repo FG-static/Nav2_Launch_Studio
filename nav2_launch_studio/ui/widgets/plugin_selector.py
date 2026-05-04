@@ -144,15 +144,15 @@ class PluginSelectorWidget(QWidget):
 
         planner = plugins.get("planner")
         if isinstance(planner, dict) and planner.get("plugin_type") and hasattr(self, 'planner_group'):
-            self.planner_group.set_selected_by_type(planner["plugin_type"])
+            self.planner_group.set_selected_by_type(planner["plugin_type"], planner)
 
         controller = plugins.get("controller")
         if isinstance(controller, dict) and controller.get("plugin_type") and hasattr(self, 'controller_group'):
-            self.controller_group.set_selected_by_type(controller["plugin_type"])
+            self.controller_group.set_selected_by_type(controller["plugin_type"], controller)
 
         smoother = plugins.get("smoother")
         if isinstance(smoother, dict) and smoother.get("plugin_type") and hasattr(self, 'smoother_group'):
-            self.smoother_group.set_selected_by_type(smoother["plugin_type"])
+            self.smoother_group.set_selected_by_type(smoother["plugin_type"], smoother)
 
         global_layers = plugins.get("global_costmap_layers")
         if isinstance(global_layers, list) and hasattr(self, 'global_costmap_group'):
@@ -189,6 +189,7 @@ class PluginGroupWidget(QGroupBox):
         self.multi_select = multi_select
         self._category = category
         self._plugins: list[dict] = []
+        self._custom_detail: dict = {}
         self._init_ui()
 
     def _init_ui(self):
@@ -199,6 +200,8 @@ class PluginGroupWidget(QGroupBox):
             layout.addWidget(self.list_widget)
         else:
             self.combo = QComboBox()
+            self.combo.setEditable(True)
+            self.combo.setInsertPolicy(QComboBox.NoInsert)
             self.combo.currentIndexChanged.connect(self._on_combo_changed)
             layout.addWidget(self.combo)
 
@@ -231,8 +234,12 @@ class PluginGroupWidget(QGroupBox):
             self.combo.addItem(display_name, len(self._plugins) - 1)
             self.combo.setItemData(self.combo.count() - 1, description, Qt.ToolTipRole)
 
-    def set_selected_by_type(self, plugin_type: str):
-        """单选模式：按 plugin_type 设置当前选中。"""
+    def set_selected_by_type(self, plugin_type: str, detail: dict = None):
+        """单选模式：按 plugin_type 设置当前选中。
+
+        先在预设中查找匹配项，无匹配则设置为自定义文本。
+        参数 detail 可保留原始 instance_name 等信息。
+        """
         if self.multi_select:
             return
         for i, p in enumerate(self._plugins):
@@ -241,6 +248,12 @@ class PluginGroupWidget(QGroupBox):
                 if idx >= 0:
                     self.combo.setCurrentIndex(idx)
                 return
+        # 无匹配预设：设置为自定义文本，保存原始 detail
+        self.combo.setEditText(plugin_type)
+        if detail:
+            self._custom_detail = dict(detail)
+        else:
+            self._custom_detail = {"instance_name": plugin_type, "plugin_type": plugin_type, "params": {}}
 
     def set_checked_by_instance(self, details_list: list):
         """多选模式：按 instance_name 列表勾选。"""
@@ -278,6 +291,12 @@ class PluginGroupWidget(QGroupBox):
         idx = self.combo.currentData()
         if idx is not None and idx < len(self._plugins):
             return dict(self._plugins[idx]["detail"])
+        # 自定义文本输入：使用保存的 detail 或从文本构造
+        text = self.combo.currentText().strip()
+        if text:
+            if hasattr(self, '_custom_detail') and self._custom_detail.get("plugin_type") == text:
+                return dict(self._custom_detail)
+            return {"instance_name": text, "plugin_type": text, "params": {}}
         return None
 
     def get_selected_details(self):

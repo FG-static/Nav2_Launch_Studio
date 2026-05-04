@@ -46,7 +46,7 @@ class YamlImporter:
         "bt_navigator", "controller_server", "planner_server",
         "behavior_server", "amcl", "map_server",
         "velocity_smoother", "waypoint_follower",
-        "lifecycle_manager",
+        "lifecycle_manager", "smoother_server",
     }
 
     # 不应识别为节点的顶层键（代价地图等特殊结构）
@@ -60,6 +60,7 @@ class YamlImporter:
         ("planner_server", "planner_plugins"): "planner",
         ("planner_server", "planner_plugin_ids"): "planner",
         ("controller_server", "controller_plugins"): "controller",
+        ("smoother_server", "smoother_plugins"): "smoother",
         ("behavior_server", "behavior_plugins"): "recovery_behaviors",
     }
 
@@ -152,7 +153,10 @@ class YamlImporter:
                 isinstance(node_data, dict) and "ros__parameters" in node_data
             )
             if key in self.KNOWN_NODES:
-                nodes[key]["enabled"] = True
+                if key not in nodes:
+                    nodes[key] = {"enabled": True, "node_type": "optional"}
+                else:
+                    nodes[key]["enabled"] = True
                 report.mapped_count += 1
                 report.mapped_items.append(f"节点: {key}")
             elif has_ros_params:
