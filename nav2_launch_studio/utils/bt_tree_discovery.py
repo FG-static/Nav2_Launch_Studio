@@ -1,5 +1,6 @@
 """BT 树发现 - 扫描 Nav2 安装获取可用的 BT 模板。"""
 
+import glob
 import os
 import subprocess
 from typing import Optional
@@ -13,6 +14,7 @@ class BTTreeDiscovery:
 
     def __init__(self):
         self._template_dir: Optional[str] = None
+        self._groot2_path: Optional[str] = None
 
     def discover_template_dir(self) -> Optional[str]:
         """查找 Nav2 BT 树模板目录。
@@ -64,13 +66,43 @@ class BTTreeDiscovery:
                 return path
         return None
 
+    def get_groot2_path(self) -> Optional[str]:
+        """获取 Groot2 可执行文件路径。"""
+        return self._groot2_path
+
     def check_groot2_available(self) -> bool:
-        """检测系统中是否安装了 Groot2。"""
+        """检测系统中是否安装了 Groot2。
+
+        检测顺序：
+        1. PATH 中的 groot2 命令
+        2. 常见位置的 Groot*.AppImage 文件
+        """
+        # 1. 检查 PATH 中的 groot2
         try:
             result = subprocess.run(
                 ["which", "groot2"],
                 capture_output=True, text=True, timeout=3,
             )
-            return result.returncode == 0
+            if result.returncode == 0:
+                self._groot2_path = result.stdout.strip()
+                return True
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            return False
+            pass
+
+        # 2. 搜索常见位置的 AppImage
+        search_locations = [
+            os.path.expanduser("~"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Applications"),
+            "/opt",
+            "/usr/local/bin",
+        ]
+        for location in search_locations:
+            if not os.path.isdir(location):
+                continue
+            matches = glob.glob(os.path.join(location, "Groot*.AppImage"))
+            if matches:
+                self._groot2_path = matches[0]
+                return True
+
+        return False
