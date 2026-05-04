@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         right_splitter = QSplitter(Qt.Vertical)
         self._param_panel = ParamPanelWidget()
         self._param_panel.param_changed.connect(self._on_param_changed)
+        self._param_panel.params_replaced.connect(self._on_params_replaced)
         right_splitter.addWidget(self._param_panel)
         self._plugin_selector = PluginSelectorWidget()
         self._plugin_selector.plugin_changed.connect(self._on_plugin_changed)
@@ -482,12 +483,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"节点 {node_name} 已{status}", 2000)
 
     def _on_param_changed(self, node_name: str, param_key: str, value):
-        """参数面板值变更，同步到 ProjectModel。"""
+        """参数面板单个值变更，同步到 ProjectModel。"""
         project = self._project_manager.current_project
         if project:
             if node_name not in project.params:
                 project.params[node_name] = {}
             project.params[node_name][param_key] = value
+            project.touch()
+
+    def _on_params_replaced(self, node_name: str, new_params: dict):
+        """专家模式批量替换节点参数，完整替换 ProjectModel 中的数据。"""
+        project = self._project_manager.current_project
+        if project:
+            project.params[node_name] = new_params
             project.touch()
 
     def _on_plugin_changed(self, category: str, plugin_id: str):

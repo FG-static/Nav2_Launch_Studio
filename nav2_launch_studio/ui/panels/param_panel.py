@@ -22,11 +22,13 @@ class ParamPanelWidget(QWidget):
 
     # 信号
     param_changed = Signal(str, str, object)  # 节点名, 参数键, 值
+    params_replaced = Signal(str, dict)       # 节点名, 完整新参数字典（专家模式批量替换）
     mode_changed = Signal(str)  # "basic" 或 "expert"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._current_node = None
+        self._current_params: dict = {}  # 当前节点的参数快照
         self._mode = "basic"
         self._param_widgets: dict[str, QWidget] = {}
         self._param_types: dict[str, str] = {}
@@ -80,6 +82,7 @@ class ParamPanelWidget(QWidget):
         self._clear_params()
 
         self._current_node = node_name
+        self._current_params = dict(params) if params else {}
         self.node_label.setText(node_name)
         self._param_widgets.clear()
         self._param_types.clear()
@@ -134,6 +137,9 @@ class ParamPanelWidget(QWidget):
             self._update_yaml_editor()
             self._hint_label.setText("专家模式：直接编辑 YAML 文本，点击「应用 YAML 更改」同步到项目")
         else:
+            # 切回基础模式：从当前快照刷新表单
+            if self._current_node:
+                self.load_params(self._current_node, self._current_params)
             self._hint_label.setText("")
 
     def _update_yaml_editor(self):
@@ -147,33 +153,46 @@ class ParamPanelWidget(QWidget):
             self.yaml_editor.setPlainText("# 无参数")
 
     def _apply_yaml_changes(self):
-        """将 YAML 编辑器内容解析并发射参数变更信号。"""
+        """将 YAML 编辑器内容完整替换节点参数。"""
         text = self.yaml_editor.toPlainText().strip()
         if not text or text == "# 无参数":
+            new_params = {}
+        else:
+            import yaml
+            try:
+                new_params = yaml.safe_load(text)
+            except yaml.YAMLError as e:
+                self._hint_label.setText(f"YAML 解析错误: {e}")
+                return
+
+            if not isinstance(new_params, dict):
+                self._hint_label.setText("YAML 内容必须是字典格式")
+                return
+
+        if not self._current_node:
             return
 
-        import yaml
-        try:
-            new_params = yaml.safe_load(text)
-        except yaml.YAMLError as e:
-            self._hint_label.setText(f"YAML 解析错误: {e}")
-            return
+        # 完整替换：发射信号让 model 更新整个节点参数
+        self.params_replaced.emit(self._current_node, new_params)
 
-        if not isinstance(new_params, dict):
-            self._hint_label.setText("YAML 内容必须是字典格式")
-            return
+        # 更新本地快照和表单控件
+        self._current_params = dict(new_params)
+        self._rebuild_form(new_params)
 
-        # 更新内部控件值（保持基础模式同步）
-        for key, value in new_params.items():
-            if key in self._param_widgets:
-                self._set_widget_value(self._param_widgets[key], self._param_types.get(key, "string"), value)
+        self._hint_label.setText(f"YAML 更改已应用（{len(new_params)} 个参数）")
 
-        # 发射变更信号
-        for key, value in new_params.items():
-            if self._current_node:
-                self.param_changed.emit(self._current_node, key, value)
+    def _rebuild_form(self, params: dict):
+        """从参数字典重建表单控件。"""
+        self._clear_params()
+        self._param_widgets.clear()
+        self._param_types.clear()
 
-        self._hint_label.setText("YAML 更改已应用")
+        for key, value in sorted(params.items()):
+            dtype = self._detect_type(value)
+            widget = self._create_widget_for_type(dtype, value)
+            self._param_widgets[key] = widget
+            self._param_types[key] = dtype
+            self.param_layout.addRow(key, widget)
 
     def _set_widget_value(self, widget: QWidget, dtype: str, value):
         """设置控件的值。"""
