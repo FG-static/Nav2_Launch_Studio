@@ -36,17 +36,20 @@ class PluginSelectorWidget(QWidget):
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
-    def load_plugins(self, plugin_registry, plugins: dict = None):
-        """从注册表填充插件列表，并根据项目数据动态创建 tab。
+    def load_plugins(self, plugin_registry, plugins: dict = None, nodes: dict = None):
+        """从注册表填充插件列表，并根据节点数据动态创建 tab。
 
-        遍历实际项目插件数据，只为有数据的类别添加 tab。
-        与 node_graph.load_nodes 模式一致：数据驱动 UI 创建。
+        与 node_graph.load_nodes 模式一致：
+        用 model.nodes 判断节点是否存在来决定 tab 可见性。
 
         参数：
             plugin_registry: PluginRegistry 实例
-            plugins: ProjectModel.plugins 字典（决定哪些 tab 需要显示）
+            plugins: ProjectModel.plugins 字典（用于设置选中值）
+            nodes: ProjectModel.nodes 字典（决定哪些 tab 需要显示）
         """
         self._plugin_registry = plugin_registry
+        if nodes is None:
+            nodes = {}
 
         # 清空所有 tab
         self.tabs.clear()
@@ -65,22 +68,16 @@ class PluginSelectorWidget(QWidget):
         self._fill_group(self.controller_group, plugin_registry.BUILTIN_CONTROLLERS)
         self.tabs.addTab(self.controller_group, "控制器")
 
-        # smoother（按数据添加）
-        smoother_data = plugins.get("smoother") if plugins else None
-        if isinstance(smoother_data, dict) and smoother_data.get("plugin_type"):
+        # smoother（按节点存在性添加）
+        if "smoother_server" in nodes:
             self.smoother_group = PluginGroupWidget("路径平滑器", multi_select=False, category="smoother")
             self.smoother_group.plugin_changed.connect(
                 lambda pid: self.plugin_changed.emit("smoother", pid))
             self._fill_group(self.smoother_group, plugin_registry.BUILTIN_SMOOTHERS)
             self.tabs.addTab(self.smoother_group, "平滑器")
 
-        # costmap（按数据添加）
-        global_layers = plugins.get("global_costmap_layers") if plugins else None
-        local_layers = plugins.get("local_costmap_layers") if plugins else None
-        has_costmap = (
-            (isinstance(global_layers, list) and len(global_layers) > 0)
-            or (isinstance(local_layers, list) and len(local_layers) > 0)
-        )
+        # costmap（按节点存在性添加）
+        has_costmap = "global_costmap" in nodes or "local_costmap" in nodes
         if has_costmap:
             costmap_widget = QWidget()
             costmap_layout = QVBoxLayout(costmap_widget)
@@ -93,9 +90,8 @@ class PluginSelectorWidget(QWidget):
             costmap_layout.addWidget(self.local_costmap_group)
             self.tabs.addTab(costmap_widget, "代价地图")
 
-        # recovery（按数据添加）
-        recovery_data = plugins.get("recovery_behaviors") if plugins else None
-        if isinstance(recovery_data, list) and len(recovery_data) > 0:
+        # recovery（按节点存在性添加）
+        if "behavior_server" in nodes:
             self.recovery_group = PluginGroupWidget("Recovery", multi_select=True, category="recovery")
             self._fill_group(self.recovery_group, plugin_registry.BUILTIN_RECOVERIES)
             self.tabs.addTab(self.recovery_group, "Recovery")

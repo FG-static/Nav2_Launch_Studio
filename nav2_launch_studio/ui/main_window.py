@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
             # 加载节点拓扑图
             self._node_graph.load_nodes(project.nodes)
             # 加载插件选择器（根据项目数据动态创建 tab）
-            self._plugin_selector.load_plugins(self._plugin_registry, project.plugins)
+            self._plugin_selector.load_plugins(self._plugin_registry, project.plugins, project.nodes)
             self._plugin_selector.set_selected_plugins(project.plugins)
             # 加载 BT 树选择器
             self._bt_tree_selector.load_builtin_templates()

@@ -121,7 +121,10 @@ class YamlImporter:
         if "recovery_behaviors" not in imported_categories:
             plugins["recovery_behaviors"] = None
 
-        # 5. 提取 BT 树路径
+        # 5b. Fallback：直接从节点存在性提取未识别的插件
+        self._fallback_extract_plugins(data, plugins, imported_categories, report)
+
+        # 6. 提取 BT 树路径
         bt_tree = self._extract_bt_tree(params)
 
         # 6. 传感器推断
@@ -355,6 +358,69 @@ class YamlImporter:
         if bt_xml:
             return os.path.basename(str(bt_xml))
         return "navigate_to_pose_w_replanning_and_recovery.xml"
+
+    def _fallback_extract_plugins(
+        self, data: dict, plugins: dict, imported_categories: set, report: ImportReport,
+    ):
+        """直接从节点存在性提取未被 PLUGIN_LIST_MAP 识别的插件。
+
+        检查 YAML 中是否有对应节点（如 smoother_server），
+        有则从 ros__parameters 中提取第一个插件。
+        """
+        # 节点名 → 插件类别 → 列表键后缀
+        fallback_map = [
+            ("smoother_server", "smoother", "smoother_plugins"),
+        ]
+
+        for node_name, model_key, list_key in fallback_map:
+            if model_key in imported_categories:
+                continue  # 已经提取过了
+
+            node_data = data.get(node_name)
+            if not isinstance(node_data, dict):
+                continue
+
+            node_params = _get_ros_params(node_data)
+            if not node_params:
+                continue
+
+            # 尝试从 *_plugins 列表提取
+            plugin_list = node_params.get(list_key, [])
+            if isinstance(plugin_list, list) and plugin_list:
+                inst_name = plugin_list[0]
+                inst_data = node_params.get(inst_name, {})
+                if isinstance(inst_data, dict):
+                    ptype = inst_data.get("plugin", "")
+                    inst_params = {k: v for k, v in inst_data.items() if k != "plugin"}
+                    plugins[model_key] = {
+                        "instance_name": inst_name,
+                        "plugin_type": ptype,
+                        "params": inst_params,
+                        "_list_key": list_key,
+                    }
+                    imported_categories.add(model_key)
+                    report.mapped_count += 1
+                    report.mapped_items.append(
+                        f"{model_key}: {ptype} ({inst_name}) [fallback]"
+                    )
+                    continue
+
+            # 没有 *_plugins 列表：直接查找含 plugin 键的子项
+            for key, value in node_params.items():
+                if isinstance(value, dict) and "plugin" in value:
+                    ptype = value["plugin"]
+                    inst_params = {k: v for k, v in value.items() if k != "plugin"}
+                    plugins[model_key] = {
+                        "instance_name": key,
+                        "plugin_type": ptype,
+                        "params": inst_params,
+                    }
+                    imported_categories.add(model_key)
+                    report.mapped_count += 1
+                    report.mapped_items.append(
+                        f"{model_key}: {ptype} ({key}) [fallback]"
+                    )
+                    break
 
     def _infer_sensors(self, plugins: dict) -> SensorConfig:
         """从代价地图层配置推断传感器设置。"""
