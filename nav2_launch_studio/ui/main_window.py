@@ -14,6 +14,7 @@ from nav2_launch_studio.core.project_manager import ProjectManager
 from nav2_launch_studio.core.yaml_importer import YamlImporter
 from nav2_launch_studio.ui.start_page import StartPageWidget
 from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard
+from nav2_launch_studio.ui.widgets.node_graph import NodeGraphWidget
 
 
 # 启动页 / 编辑页 在 QStackedWidget 中的索引
@@ -72,7 +73,10 @@ class MainWindow(QMainWindow):
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        # TODO: 添加 NodeGraphWidget
+        self._node_graph = NodeGraphWidget()
+        self._node_graph.node_clicked.connect(self._on_node_clicked)
+        self._node_graph.node_toggled.connect(self._on_node_toggled)
+        left_layout.addWidget(self._node_graph)
         # TODO: 添加 BTTreeSelectorWidget
         self.main_splitter.addWidget(left_widget)
 
@@ -130,6 +134,8 @@ class MainWindow(QMainWindow):
                 f"ROS2：{project.ros2_version}  |  "
                 f"机器人：{robot_display}"
             )
+            # 加载节点拓扑图
+            self._node_graph.load_nodes(project.nodes)
         self._stack.setCurrentIndex(PAGE_EDITOR)
 
     def _refresh_start_page(self):
@@ -435,6 +441,20 @@ class MainWindow(QMainWindow):
         """切换到专家参数显示模式。"""
         # TODO: 发送信号到 ParamPanel
         pass
+
+    def _on_node_clicked(self, node_name: str):
+        """节点被点击，打开对应参数面板。"""
+        self.statusBar().showMessage(f"选中节点：{node_name}", 2000)
+        # TODO: 打开参数面板显示该节点的参数
+
+    def _on_node_toggled(self, node_name: str, enabled: bool):
+        """节点启用/禁用状态变更，同步到 ProjectModel。"""
+        project = self._project_manager.current_project
+        if project and node_name in project.nodes:
+            project.nodes[node_name]["enabled"] = enabled
+            project.touch()
+            status = "启用" if enabled else "禁用"
+            self.statusBar().showMessage(f"节点 {node_name} 已{status}", 2000)
 
     def _on_about(self):
         """显示关于对话框。"""
