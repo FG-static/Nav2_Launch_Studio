@@ -101,14 +101,24 @@ class YamlImporter:
         nodes = self._import_nodes(data, report)
 
         # 2. 提取插件（通用方式）
-        plugins, plugin_keys_per_node = self._import_plugins(data, report)
+        plugins, plugin_keys_per_node, imported_categories = self._import_plugins(data, report)
 
         # 3. 提取非插件参数
         params = self._import_params(data, plugin_keys_per_node, report, nodes)
 
         # 4. 提取代价地图层和参数
-        self._import_costmap_plugins(data, plugins, report)
+        self._import_costmap_plugins(data, plugins, imported_categories, report)
         self._import_costmap_params(data, plugins, params, plugin_keys_per_node, report)
+
+        # 5. 清理：导入的 YAML 中不存在的插件类别设为 None
+        for cat in ("planner", "controller", "smoother"):
+            if cat not in imported_categories:
+                plugins[cat] = None
+        for cat in ("global_costmap_layers", "local_costmap_layers"):
+            if cat not in imported_categories:
+                plugins[cat] = None
+        if "recovery_behaviors" not in imported_categories:
+            plugins["recovery_behaviors"] = None
 
         # 5. 提取 BT 树路径
         bt_tree = self._extract_bt_tree(params)
@@ -156,11 +166,13 @@ class YamlImporter:
         """从各节点中通用提取插件声明。
 
         返回：
-            (plugins_dict, plugin_keys_per_node) 元组
+            (plugins_dict, plugin_keys_per_node, imported_categories) 元组
             plugin_keys_per_node: {node_name: set_of_keys_to_exclude_from_params}
+            imported_categories: 实际在 YAML 中找到的插件类别集合
         """
         plugins = ProjectModel._default_plugins()
         plugin_keys_per_node = {}
+        imported_categories = set()
 
         for (node_name, list_key), model_key in self.PLUGIN_LIST_MAP.items():
             node_data = data.get(node_name, {})
@@ -200,6 +212,7 @@ class YamlImporter:
                     report.mapped_items.append(f"Recovery: {ptype} ({inst_name})")
                 if items:
                     plugins[model_key] = items
+                    imported_categories.add(model_key)
             else:
                 # 单选：取第一个
                 for inst_name in plugin_list:
@@ -214,6 +227,7 @@ class YamlImporter:
                             "_list_key": list_key,
                         }
                         exclude_keys.add(inst_name)
+                        imported_categories.add(model_key)
                         report.mapped_count += 1
                         report.mapped_items.append(
                             f"{model_key}: {ptype} ({inst_name})"
@@ -226,10 +240,10 @@ class YamlImporter:
 
             plugin_keys_per_node[node_name] = exclude_keys
 
-        return plugins, plugin_keys_per_node
+        return plugins, plugin_keys_per_node, imported_categories
 
     def _import_costmap_plugins(
-        self, data: dict, plugins: dict, report: ImportReport,
+        self, data: dict, plugins: dict, imported_categories: set, report: ImportReport,
     ):
         """从代价地图配置中提取层列表。"""
         for cm_key, model_key in [
@@ -268,6 +282,7 @@ class YamlImporter:
 
             if items:
                 plugins[model_key] = items
+                imported_categories.add(model_key)
 
     def _import_costmap_params(
         self, data: dict, plugins: dict, params: dict,
@@ -342,7 +357,7 @@ class YamlImporter:
         sensors = SensorConfig()
 
         for layer_list_key in ("global_costmap_layers", "local_costmap_layers"):
-            for layer in plugins.get(layer_list_key, []):
+            for layer in (plugins.get(layer_list_key) or []):
                 ptype = layer.get("plugin_type", "")
                 if "Voxel" in ptype:
                     sensors.depth_camera_enabled = True

@@ -50,12 +50,14 @@ def _yaml_list(items):
 
 
 def _remove_plugin_duplicates(node_params: dict, plugins: dict):
-    """从 node_params 中移除已作为主插件声明的实例名，避免在模板中重复输出。
+    """从 node_params 中移除已作为主插件声明的实例名和列表键，避免重复输出。
 
     模板会单独输出 controller/FollowPath、planner/GridBased 等插件声明，
     如果 node_params 中也包含这些 key，就会导致重复。
+    同时移除插件列表键（如 planner_plugins、controller_plugins、behavior_plugins），
+    因为模板也会从插件元数据 _list_key 输出这些键。
     """
-    # 单选插件：instance_name 在对应节点参数中
+    # 单选插件：instance_name + 插件列表键
     for node_name, plugin_key in [
         ("controller_server", "controller"),
         ("planner_server", "planner"),
@@ -63,23 +65,35 @@ def _remove_plugin_duplicates(node_params: dict, plugins: dict):
         plugin = plugins.get(plugin_key)
         if not plugin or not isinstance(plugin, dict):
             continue
-        inst_name = plugin.get("instance_name", "")
-        if inst_name and node_name in node_params:
-            node_params[node_name].pop(inst_name, None)
+        if node_name in node_params:
+            inst_name = plugin.get("instance_name", "")
+            if inst_name:
+                node_params[node_name].pop(inst_name, None)
+            list_key = plugin.get("_list_key", "")
+            if list_key:
+                node_params[node_name].pop(list_key, None)
 
-    # 多选插件：recovery_behaviors 的每个实例名
-    for inst_name in _get_instance_names(plugins.get("recovery_behaviors", [])):
+    # 多选插件：recovery_behaviors 的每个实例名 + 列表键
+    recovery = plugins.get("recovery_behaviors")
+    if isinstance(recovery, list) and recovery:
         if "behavior_server" in node_params:
-            node_params["behavior_server"].pop(inst_name, None)
+            for inst_name in _get_instance_names(recovery):
+                node_params["behavior_server"].pop(inst_name, None)
+            # 移除 behavior_plugins 列表键
+            list_key = recovery[0].get("_list_key", "") if recovery else ""
+            if list_key:
+                node_params["behavior_server"].pop(list_key, None)
 
     # 代价地图层
     for cm_key, layer_key in [
         ("global_costmap", "global_costmap_layers"),
         ("local_costmap", "local_costmap_layers"),
     ]:
-        for inst_name in _get_instance_names(plugins.get(layer_key, [])):
+        layers = plugins.get(layer_key)
+        if isinstance(layers, list) and layers:
             if cm_key in node_params:
-                node_params[cm_key].pop(inst_name, None)
+                for inst_name in _get_instance_names(layers):
+                    node_params[cm_key].pop(inst_name, None)
 
 
 def _get_instance_names(plugin_list):

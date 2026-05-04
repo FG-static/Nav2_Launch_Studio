@@ -37,7 +37,7 @@ bt_navigator:
 {{ render_params(node_params['bt_navigator'], 4) }}
 {% endif %}
 {% endif %}
-{% if 'controller_server' in enabled_nodes %}
+{% if plugins.controller and 'controller_server' in enabled_nodes %}
 
 controller_server:
   ros__parameters:
@@ -51,7 +51,7 @@ controller_server:
 {{ render_params(node_params['controller_server'], 4) }}
 {% endif %}
 {% endif %}
-{% if 'planner_server' in enabled_nodes %}
+{% if plugins.planner and 'planner_server' in enabled_nodes %}
 
 planner_server:
   ros__parameters:
@@ -65,7 +65,7 @@ planner_server:
 {{ render_params(node_params['planner_server'], 4) }}
 {% endif %}
 {% endif %}
-{% if 'behavior_server' in enabled_nodes %}
+{% if plugins.recovery_behaviors and 'behavior_server' in enabled_nodes %}
 
 behavior_server:
   ros__parameters:
@@ -79,6 +79,17 @@ behavior_server:
 {% endfor %}
 {% if node_params.get('behavior_server') %}
 {{ render_params(node_params['behavior_server'], 4) }}
+{% endif %}
+{% endif %}
+{% if plugins.smoother and 'smoother_server' in enabled_nodes %}
+
+smoother_server:
+  ros__parameters:
+    smoother_plugins: {{ [plugins.smoother.instance_name] | yaml_list }}
+    {{ plugins.smoother.instance_name }}:
+      plugin: "{{ plugins.smoother.plugin_type }}"
+{% if plugins.smoother.params %}
+{{ render_params(plugins.smoother.params, 6) }}
 {% endif %}
 {% endif %}
 {% if 'velocity_smoother' in enabled_nodes %}
@@ -125,6 +136,7 @@ lifecycle_manager:
 {% endfor %}
 
 # ---- Costmap 2D ROS ----
+{% if plugins.global_costmap_layers %}
 global_costmap:
   global_costmap:
     ros__parameters:
@@ -139,7 +151,9 @@ global_costmap:
 {% if node_params.get('global_costmap') %}
 {{ render_params(node_params['global_costmap'], 6) }}
 {% endif %}
+{% endif %}
 
+{% if plugins.local_costmap_layers %}
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -153,4 +167,5 @@ local_costmap:
 {% endfor %}
 {% if node_params.get('local_costmap') %}
 {{ render_params(node_params['local_costmap'], 6) }}
+{% endif %}
 {% endif %}

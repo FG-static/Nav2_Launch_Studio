@@ -1,6 +1,6 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v1.6  
+**文档版本**：v1.9  
 **更新日期**：2026-05-04  
 **对应 PRD**：v1.3
 
@@ -62,12 +62,14 @@
 |------|------|------|
 | Jinja2 YAML 生成 | `core/yaml_generator.py:generate()` | 从 ProjectModel 构建 `plugins` + `node_params` 上下文 → Jinja2 渲染，不依赖 PluginRegistry |
 | 模板上下文构建 | `core/yaml_generator.py:_build_context()` | 收集启用节点、plugins dict（含 `_list_key`/instance_name/plugin_type/params）、node_params（含 bt_tree 合并） |
-| 插件重复消除 | `core/yaml_generator.py:_remove_plugin_duplicates()` | 从 node_params 中移除已作为插件输出的实例名，避免模板重复输出 |
+| 插件重复消除 | `core/yaml_generator.py:_remove_plugin_duplicates()` | 从 node_params 中移除已作为插件输出的实例名和插件列表键（`_list_key`），避免模板重复输出 |
 | 递归参数渲染宏 | `templates/nav2_params.yaml.jinja2:render_params()` | 递归渲染 dict/scalar/list，跳过 `_` 前缀元数据键，零硬编码参数值 |
 | 动态插件列表键名 | `templates/nav2_params.yaml.jinja2` | 使用 `_list_key` 保留原始列表键名（如 `planner_plugin_ids`），round-trip 一致 |
 | 零硬编码模板 | `templates/nav2_params.yaml.jinja2` | 只输出结构骨架（节点名、ros__parameters、插件声明），所有参数从 model 动态渲染；未知节点自动输出 |
+| 模板条件输出 | `templates/nav2_params.yaml.jinja2` | 每个插件类别（planner/controller/smoother/costmap/recovery）添加 None 检查，不存在则跳过输出 |
 | YAML 通用导入 | `core/yaml_importer.py:import_file()/import_text()` | PyYAML 解析 → 通用读取所有插件声明 → 分离插件实例与节点参数，不区分内置/自定义 |
 | 插件通用提取 | `core/yaml_importer.py:_import_plugins()` | 从 `*_plugins` 列表声明提取插件实例，支持别名（`planner_plugin_ids`），`_list_key` 记录原始键名 |
+| 插件类别跟踪 | `core/yaml_importer.py:imported_categories` | 跟踪实际导入的插件类别，未在 YAML 中出现的类别设为 None，确保导入/导出/显示三端一致 |
 | 未知节点自动识别 | `core/yaml_importer.py:_import_nodes()` | 含 `ros__parameters` 的顶层键自动识别为节点（如 collision_monitor, docking_server） |
 | 子插件参数保留 | `core/yaml_importer.py:_import_plugins()` | `progress_checker_plugins` 等子插件列表的实例和参数保留在 node_params 中，不丢失 |
 | 代价地图层提取 | `core/yaml_importer.py:_import_costmap_plugins()` | 从 global/local_costmap 的 plugins 字段提取层列表 |
@@ -118,8 +120,8 @@
 | 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
 | 节点拓扑图 | `ui/widgets/node_graph.py` | 拓扑排序分层布局、NodeItem 绘制（颜色按类型+禁用态）、复选框交互、EdgeItem 有向连线（带箭头）、依赖检查警告、与 main_window 信号集成 |
 | 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list）、load_params/get_params、值变更信号实时同步 ProjectModel、基础/专家模式切换 |
-| 插件选择器骨架 | `ui/widgets/plugin_selector.py` | Tab 分组，全局/局部代价地图分离，自定义插件对话框 |
-| BT 树选择器骨架 | `ui/widgets/bt_tree_selector.py` | 模板列表 + 自定义文件选择 + Groot2 按钮 |
+| 插件选择器 | `ui/widgets/plugin_selector.py` | Tab 分组（规划器/控制器/平滑器/代价地图/Recovery）、从 PluginRegistry 填充内置+自定义插件、set_selected_plugins 从模型设置选中、set_visible_tabs 按项目数据显示/隐藏 tab、get_selected_plugins 返回 detail 格式、自定义插件注册对话框（自动锁定当前 tab 分类）、与 main_window 信号集成 |
+| BT 树选择器 | `ui/widgets/bt_tree_selector.py` | 从 BTTreeDiscovery 扫描模板填充列表、自定义 BT 树文件选择、set_current_tree 从模型设置选中、Groot2 检测与预览按钮、与 main_window 信号集成 |
 | YAML 预览骨架 | `ui/panels/yaml_preview.py` | 只读文本区 + 复制/导出按钮 |
 | 键值编辑器骨架 | `ui/widgets/key_value_editor.py` | 表格 + 添加/删除/YAML 导入 |
 
@@ -145,14 +147,15 @@
 | 功能 | 位置 | 详细说明 |
 |------|------|---------|
 | **项目持久化完善** | `core/project_manager.py` | ~~`save_as()` 复制项目~~ ✅ 已实现 |
-| **插件选择器填充** | `ui/widgets/plugin_selector.py:load_plugins()` | 从 `PluginRegistry` 读取内置+自定义插件，填充到各分组 UI |
+| ~~**插件选择器填充**~~ | `ui/widgets/plugin_selector.py:load_plugins()` | ✅ 已实现：从 PluginRegistry 填充内置+自定义插件，set_selected_plugins 设置选中 |
 | ~~**参数面板填充**~~ | `ui/panels/param_panel.py:load_params()` | ✅ 已实现：动态 key-value 表单，按类型自动选控件（无 schema 时） |
 | ~~**参数面板取值**~~ | `ui/panels/param_panel.py:get_params()` | ✅ 已实现：从各控件读取值返回字典 |
 | ~~**节点拓扑图渲染**~~ | `ui/widgets/node_graph.py:NodeItem.paint()` | ✅ 已实现：颜色按类型、复选框、禁用态 |
 | ~~**节点拓扑图交互**~~ | `ui/widgets/node_graph.py:load_nodes()` | ✅ 已实现：拓扑排序布局、依赖连线、启用/禁用+依赖检查警告 |
-| **BT 树模板填充** | `ui/widgets/bt_tree_selector.py:load_builtin_templates()` | 调用 `BTTreeDiscovery` 扫描目录，填充列表 |
+| ~~**BT 树模板填充**~~ | `ui/widgets/bt_tree_selector.py:load_builtin_templates()` | ✅ 已实现：从 BTTreeDiscovery 扫描模板，set_current_tree 设置选中 |
 | ~~**主窗口模块集成（节点图）**~~ | `ui/main_window.py:_init_ui()` | ✅ 已实现：NodeGraphWidget 实例化嵌入左侧布局，信号连接 |
 | ~~**主窗口模块集成（参数面板）**~~ | `ui/main_window.py:_init_ui()` | ✅ 已实现：ParamPanelWidget 实例化嵌入右侧布局，node_clicked 信号连接 load_params |
+| ~~**主窗口模块集成（插件+BT）**~~ | `ui/main_window.py:_init_ui()` | ✅ 已实现：PluginSelectorWidget+BTTreeSelectorWidget 实例化嵌入布局，信号连接 |
 | **Schema 文件编写** | `schemas/` 各子目录 | 为所有内置插件和节点编写参数 JSON schema 文件（约 20+ 个文件） |
 | **复制到剪贴板** | `ui/panels/yaml_preview.py:copy_btn` | 连接 `QApplication.clipboard()` 实现复制 |
 
