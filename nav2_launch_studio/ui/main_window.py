@@ -15,6 +15,7 @@ from nav2_launch_studio.core.yaml_importer import YamlImporter
 from nav2_launch_studio.ui.start_page import StartPageWidget
 from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard
 from nav2_launch_studio.ui.widgets.node_graph import NodeGraphWidget
+from nav2_launch_studio.ui.panels.param_panel import ParamPanelWidget
 
 
 # 启动页 / 编辑页 在 QStackedWidget 中的索引
@@ -84,7 +85,9 @@ class MainWindow(QMainWindow):
         right_widget = QWidget()
         right_layout = QHBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        # TODO: 添加 ParamPanelWidget
+        self._param_panel = ParamPanelWidget()
+        self._param_panel.param_changed.connect(self._on_param_changed)
+        right_layout.addWidget(self._param_panel)
         # TODO: 添加 PluginSelectorWidget
         self.main_splitter.addWidget(right_widget)
 
@@ -445,7 +448,10 @@ class MainWindow(QMainWindow):
     def _on_node_clicked(self, node_name: str):
         """节点被点击，打开对应参数面板。"""
         self.statusBar().showMessage(f"选中节点：{node_name}", 2000)
-        # TODO: 打开参数面板显示该节点的参数
+        project = self._project_manager.current_project
+        if project:
+            node_params = project.params.get(node_name, {})
+            self._param_panel.load_params(node_name, node_params)
 
     def _on_node_toggled(self, node_name: str, enabled: bool):
         """节点启用/禁用状态变更，同步到 ProjectModel。"""
@@ -455,6 +461,15 @@ class MainWindow(QMainWindow):
             project.touch()
             status = "启用" if enabled else "禁用"
             self.statusBar().showMessage(f"节点 {node_name} 已{status}", 2000)
+
+    def _on_param_changed(self, node_name: str, param_key: str, value):
+        """参数面板值变更，同步到 ProjectModel。"""
+        project = self._project_manager.current_project
+        if project:
+            if node_name not in project.params:
+                project.params[node_name] = {}
+            project.params[node_name][param_key] = value
+            project.touch()
 
     def _on_about(self):
         """显示关于对话框。"""

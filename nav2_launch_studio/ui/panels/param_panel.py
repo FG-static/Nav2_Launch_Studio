@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QScrollArea,
     QSlider, QDoubleSpinBox, QSpinBox, QCheckBox,
     QComboBox, QLineEdit, QPushButton, QLabel,
-    QToolButton, QGroupBox, QStackedWidget, QHBoxLayout,
+    QGroupBox, QHBoxLayout, QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -28,6 +28,8 @@ class ParamPanelWidget(QWidget):
         super().__init__(parent)
         self._current_node = None
         self._mode = "basic"
+        self._param_widgets: dict[str, QWidget] = {}
+        self._param_types: dict[str, str] = {}
         self._init_ui()
 
     def _init_ui(self):
@@ -49,80 +51,147 @@ class ParamPanelWidget(QWidget):
         self.scroll.setWidgetResizable(True)
         self.param_container = QWidget()
         self.param_layout = QFormLayout(self.param_container)
+        self.param_layout.setLabelAlignment(Qt.AlignRight)
         self.scroll.setWidget(self.param_container)
         layout.addWidget(self.scroll)
 
-    def load_params(self, node_name, params_schema, current_values=None):
+        # 底部提示
+        self._hint_label = QLabel("")
+        self._hint_label.setStyleSheet("color: #888; font-size: 11px;")
+        self._hint_label.setWordWrap(True)
+        layout.addWidget(self._hint_label)
+
+    def load_params(self, node_name: str, params: dict = None):
         """为节点加载参数控件。
 
         参数：
             node_name: Nav2 节点名称
-            params_schema: 从 schema 文件读取的参数定义字典
-            current_values: 当前参数值字典（来自项目）
+            params: 当前参数值字典 {key: value, ...}
         """
-        # TODO: 清除已有控件，根据 schema 创建控件，填充值
+        # 清除已有控件
+        self._clear_params()
+
         self._current_node = node_name
         self.node_label.setText(node_name)
+        self._param_widgets.clear()
+        self._param_types.clear()
 
-    def get_params(self):
+        if not params:
+            self._hint_label.setText("该节点暂无自定义参数。\n"
+                                     "可通过 YAML 导入或键值编辑器添加参数。")
+            return
+
+        self._hint_label.setText("")
+
+        for key, value in sorted(params.items()):
+            dtype = self._detect_type(value)
+            widget = self._create_widget_for_type(dtype, value)
+            self._param_widgets[key] = widget
+            self._param_types[key] = dtype
+            self.param_layout.addRow(key, widget)
+
+    def get_params(self) -> dict:
         """返回当前参数值字典。"""
-        # TODO: 从所有控件读取值
-        return {}
+        result = {}
+        for key, widget in self._param_widgets.items():
+            result[key] = self._read_widget_value(widget, self._param_types.get(key, "string"))
+        return result
+
+    def _clear_params(self):
+        """清除参数布局中的所有控件。"""
+        while self.param_layout.rowCount() > 0:
+            self.param_layout.removeRow(0)
+        self._param_widgets.clear()
+        self._param_types.clear()
+
+    def _detect_type(self, value) -> str:
+        """根据 Python 值自动检测参数类型。"""
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, list):
+            return "list"
+        return "string"
+
+    def _create_widget_for_type(self, dtype: str, value) -> QWidget:
+        """根据类型创建对应控件。"""
+        if dtype == "bool":
+            return self._create_bool_widget(value)
+        elif dtype == "int":
+            return self._create_int_widget(value)
+        elif dtype == "float":
+            return self._create_float_widget(value)
+        elif dtype == "list":
+            return self._create_list_widget(value)
+        else:
+            return self._create_string_widget(value)
+
+    def _create_bool_widget(self, value: bool) -> QCheckBox:
+        widget = QCheckBox()
+        widget.setChecked(bool(value))
+        widget.stateChanged.connect(lambda _: self._on_value_changed())
+        return widget
+
+    def _create_int_widget(self, value: int) -> QSpinBox:
+        widget = QSpinBox()
+        widget.setRange(-999999, 999999)
+        widget.setValue(int(value) if value is not None else 0)
+        widget.valueChanged.connect(lambda _: self._on_value_changed())
+        return widget
+
+    def _create_float_widget(self, value: float) -> QDoubleSpinBox:
+        widget = QDoubleSpinBox()
+        widget.setRange(-999999.0, 999999.0)
+        widget.setDecimals(4)
+        widget.setSingleStep(0.1)
+        widget.setValue(float(value) if value is not None else 0.0)
+        widget.valueChanged.connect(lambda _: self._on_value_changed())
+        return widget
+
+    def _create_string_widget(self, value) -> QLineEdit:
+        widget = QLineEdit(str(value) if value is not None else "")
+        widget.editingFinished.connect(self._on_value_changed)
+        return widget
+
+    def _create_list_widget(self, value: list) -> QLineEdit:
+        """列表参数暂用 QLineEdit 显示 YAML 格式。"""
+        import yaml
+        text = yaml.dump(value, default_flow_style=True).strip() if value else "[]"
+        widget = QLineEdit(text)
+        widget.editingFinished.connect(self._on_value_changed)
+        return widget
+
+    def _read_widget_value(self, widget: QWidget, dtype: str):
+        """从控件读取值并转换为对应类型。"""
+        if isinstance(widget, QCheckBox):
+            return widget.isChecked()
+        elif isinstance(widget, QSpinBox):
+            return widget.value()
+        elif isinstance(widget, QDoubleSpinBox):
+            return widget.value()
+        elif isinstance(widget, QLineEdit):
+            text = widget.text()
+            if dtype == "list":
+                import yaml
+                try:
+                    return yaml.safe_load(text) or []
+                except Exception:
+                    return text
+            return text
+        return None
+
+    def _on_value_changed(self):
+        """参数值变化时发射信号。"""
+        if self._current_node:
+            params = self.get_params()
+            for key, value in params.items():
+                self.param_changed.emit(self._current_node, key, value)
 
     def _toggle_mode(self, checked):
         """在基础和专家显示模式之间切换。"""
         self._mode = "expert" if checked else "basic"
         self.mode_btn.setText("基础模式" if checked else "专家模式")
         self.mode_changed.emit(self._mode)
-        # TODO: 根据 level 显示/隐藏参数
-
-    def _create_param_widget(self, param_def):
-        """根据参数 schema 创建对应的控件。
-
-        参数：
-            param_def: 包含 type、default、min、max 等字段的字典
-        返回：
-            参数对应的 QWidget
-        """
-        ptype = param_def.get("type", "string")
-        if ptype == "float":
-            return self._create_float_widget(param_def)
-        elif ptype == "int":
-            return self._create_int_widget(param_def)
-        elif ptype == "bool":
-            return self._create_bool_widget(param_def)
-        elif ptype == "enum":
-            return self._create_enum_widget(param_def)
-        elif ptype == "string":
-            return self._create_string_widget(param_def)
-        elif ptype == "list":
-            return self._create_list_widget(param_def)
-        return QLineEdit()
-
-    def _create_float_widget(self, param_def):
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        slider = QSlider(Qt.Horizontal)
-        spinbox = QDoubleSpinBox()
-        # TODO: 配置范围、默认值、单位
-        layout.addWidget(slider, stretch=2)
-        layout.addWidget(spinbox, stretch=1)
-        return widget
-
-    def _create_int_widget(self, param_def):
-        return QSpinBox()
-
-    def _create_bool_widget(self, param_def):
-        return QCheckBox()
-
-    def _create_enum_widget(self, param_def):
-        combo = QComboBox()
-        combo.addItems(param_def.get("enum_values", []))
-        return combo
-
-    def _create_string_widget(self, param_def):
-        return QLineEdit()
-
-    def _create_list_widget(self, param_def):
-        # TODO: 可折叠的列表编辑器
-        return QLineEdit("[list]")

@@ -1,6 +1,6 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v1.5  
+**文档版本**：v1.6  
 **更新日期**：2026-05-04  
 **对应 PRD**：v1.3
 
@@ -117,7 +117,7 @@
 | 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除/复制按钮 + 双击打开 + 右键菜单（打开/复制/删除）+ 信号通知 MainWindow |
 | 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
 | 节点拓扑图 | `ui/widgets/node_graph.py` | 拓扑排序分层布局、NodeItem 绘制（颜色按类型+禁用态）、复选框交互、EdgeItem 有向连线（带箭头）、依赖检查警告、与 main_window 信号集成 |
-| 参数面板骨架 | `ui/panels/param_panel.py` | 基础/专家模式切换，按类型创建控件的方法 |
+| 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list）、load_params/get_params、值变更信号实时同步 ProjectModel、基础/专家模式切换 |
 | 插件选择器骨架 | `ui/widgets/plugin_selector.py` | Tab 分组，全局/局部代价地图分离，自定义插件对话框 |
 | BT 树选择器骨架 | `ui/widgets/bt_tree_selector.py` | 模板列表 + 自定义文件选择 + Groot2 按钮 |
 | YAML 预览骨架 | `ui/panels/yaml_preview.py` | 只读文本区 + 复制/导出按钮 |
@@ -146,12 +146,13 @@
 |------|------|---------|
 | **项目持久化完善** | `core/project_manager.py` | ~~`save_as()` 复制项目~~ ✅ 已实现 |
 | **插件选择器填充** | `ui/widgets/plugin_selector.py:load_plugins()` | 从 `PluginRegistry` 读取内置+自定义插件，填充到各分组 UI |
-| **参数面板填充** | `ui/panels/param_panel.py:load_params()` | 根据 schema 创建控件、填充当前值、实现基础/专家模式显隐 |
-| **参数面板取值** | `ui/panels/param_panel.py:get_params()` | 从各控件读取值返回字典，供 YAML 生成使用 |
+| ~~**参数面板填充**~~ | `ui/panels/param_panel.py:load_params()` | ✅ 已实现：动态 key-value 表单，按类型自动选控件（无 schema 时） |
+| ~~**参数面板取值**~~ | `ui/panels/param_panel.py:get_params()` | ✅ 已实现：从各控件读取值返回字典 |
 | ~~**节点拓扑图渲染**~~ | `ui/widgets/node_graph.py:NodeItem.paint()` | ✅ 已实现：颜色按类型、复选框、禁用态 |
 | ~~**节点拓扑图交互**~~ | `ui/widgets/node_graph.py:load_nodes()` | ✅ 已实现：拓扑排序布局、依赖连线、启用/禁用+依赖检查警告 |
 | **BT 树模板填充** | `ui/widgets/bt_tree_selector.py:load_builtin_templates()` | 调用 `BTTreeDiscovery` 扫描目录，填充列表 |
 | ~~**主窗口模块集成（节点图）**~~ | `ui/main_window.py:_init_ui()` | ✅ 已实现：NodeGraphWidget 实例化嵌入左侧布局，信号连接 |
+| ~~**主窗口模块集成（参数面板）**~~ | `ui/main_window.py:_init_ui()` | ✅ 已实现：ParamPanelWidget 实例化嵌入右侧布局，node_clicked 信号连接 load_params |
 | **Schema 文件编写** | `schemas/` 各子目录 | 为所有内置插件和节点编写参数 JSON schema 文件（约 20+ 个文件） |
 | **复制到剪贴板** | `ui/panels/yaml_preview.py:copy_btn` | 连接 `QApplication.clipboard()` 实现复制 |
 
