@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence
 
 from nav2_launch_studio.core.project_manager import ProjectManager
 from nav2_launch_studio.core.plugin_registry import PluginRegistry
@@ -283,7 +284,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("关闭项目", self._show_start_page)
         file_menu.addAction("删除项目...", self._on_delete_current_project)
-        file_menu.addAction("保存", self._on_save_project)
+        file_menu.addAction("保存", self._on_save_project).setShortcut(QKeySequence.Save)
         file_menu.addAction("另存为...", self._on_save_as)
         file_menu.addAction("复制项目...", self._on_duplicate_project)
         file_menu.addSeparator()
