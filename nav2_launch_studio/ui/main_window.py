@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QTabWidget, QStatusBar, QMenuBar,
     QToolBar, QLabel, QStackedWidget, QFileDialog,
-    QMessageBox, QInputDialog, QLineEdit,
+    QMessageBox, QInputDialog, QLineEdit, QDialog,
+    QComboBox, QFormLayout, QPushButton,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
@@ -14,7 +15,7 @@ from PySide6.QtGui import QKeySequence
 from nav2_launch_studio.core.project_manager import ProjectManager
 from nav2_launch_studio.core.yaml_importer import YamlImporter
 from nav2_launch_studio.ui.start_page import StartPageWidget
-from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard
+from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard, RobotTypePage
 from nav2_launch_studio.ui.widgets.node_graph import NodeGraphWidget
 from nav2_launch_studio.ui.widgets.bt_tree_selector import BTTreeSelectorWidget
 from nav2_launch_studio.ui.panels.param_panel import ParamPanelWidget
@@ -23,6 +24,60 @@ from nav2_launch_studio.ui.panels.param_panel import ParamPanelWidget
 # 启动页 / 编辑页 在 QStackedWidget 中的索引
 PAGE_START = 0
 PAGE_EDITOR = 1
+
+
+class ProjectInfoDialog(QDialog):
+    """项目信息编辑对话框（新建/导入/编辑时复用）。"""
+
+    def __init__(self, parent=None, project_name="", ros2_version="jazzy", robot_type="diff_drive"):
+        super().__init__(parent)
+        self.setWindowTitle("项目信息")
+        layout = QFormLayout(self)
+
+        self.name_edit = QLineEdit(project_name)
+        self.ros_combo = QComboBox()
+        self.ros_combo.addItems(["jazzy", "humble", "foxy"])
+        idx = self.ros_combo.findText(ros2_version)
+        if idx >= 0:
+            self.ros_combo.setCurrentIndex(idx)
+
+        self.robot_combo = QComboBox()
+        self.robot_combo.setEditable(True)
+        self.robot_combo.setInsertPolicy(QComboBox.NoInsert)
+        for display, _ in RobotTypePage.PRESETS:
+            self.robot_combo.addItem(display)
+        # 设置当前值：匹配预设则选中，否则设为自定义文本
+        matched = False
+        for i, (_, value) in enumerate(RobotTypePage.PRESETS):
+            if value == robot_type:
+                self.robot_combo.setCurrentIndex(i)
+                matched = True
+                break
+        if not matched:
+            self.robot_combo.setEditText(robot_type)
+
+        layout.addRow("项目名称：", self.name_edit)
+        layout.addRow("ROS2 版本：", self.ros_combo)
+        layout.addRow("机器人轮式：", self.robot_combo)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("确定")
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addRow(btn_layout)
+
+    def get_values(self) -> dict:
+        """返回用户填写的项目信息。"""
+        robot_text = self.robot_combo.currentText()
+        robot_type = RobotTypePage.resolve_robot_type(robot_text)
+        return {
+            "project_name": self.name_edit.text().strip(),
+            "ros2_version": self.ros_combo.currentText(),
+            "robot_type": robot_type,
+        }
 
 
 class MainWindow(QMainWindow):
@@ -126,22 +181,24 @@ class MainWindow(QMainWindow):
         self._refresh_start_page()
         self._stack.setCurrentIndex(PAGE_START)
         self.project_label.setText("未打开项目")
+        self._edit_info_btn.setEnabled(False)
 
     def _show_editor_page(self):
         """切换到编辑页，更新项目信息栏。"""
         project = self._project_manager.current_project
         if project:
-            robot_type_map = {
-                "diff_drive": "差速驱动",
-                "omni": "全向轮",
-                "ackermann": "阿克曼",
-            }
-            robot_display = robot_type_map.get(project.robot_type, project.robot_type)
+            # 机器人类型显示：从预设中查找中文名，未匹配则直接显示原始值
+            robot_display = project.robot_type
+            for display, value in RobotTypePage.PRESETS:
+                if value == project.robot_type:
+                    robot_display = display.split(" (")[0]  # 取中文部分
+                    break
             self.project_label.setText(
                 f"项目：{project.project_name}  |  "
                 f"ROS2：{project.ros2_version}  |  "
                 f"机器人：{robot_display}"
             )
+            self._edit_info_btn.setEnabled(True)
             # 加载节点拓扑图
             self._node_graph.load_nodes(project.nodes)
             # 加载 BT 树选择器
@@ -154,6 +211,32 @@ class MainWindow(QMainWindow):
         """刷新启动页的最近项目列表。"""
         projects = self._project_manager.list_recent_projects(self._projects_base_dir)
         self._start_page.load_recent_projects(projects)
+
+    def _on_edit_project_info(self):
+        """编辑当前项目信息（项目名、ROS2 版本、机器人轮式）。"""
+        project = self._project_manager.current_project
+        if not project:
+            return
+
+        dialog = ProjectInfoDialog(
+            self,
+            project_name=project.project_name,
+            ros2_version=project.ros2_version,
+            robot_type=project.robot_type,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        info = dialog.get_values()
+        if not info["project_name"]:
+            return
+
+        project.project_name = info["project_name"]
+        project.ros2_version = info["ros2_version"]
+        project.robot_type = info["robot_type"]
+        project.touch()
+        self._show_editor_page()
+        self.statusBar().showMessage("项目信息已更新", 2000)
 
     # ---- 项目操作 ----
 
@@ -299,6 +382,10 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.TopToolBarArea, self.info_bar)
         self.project_label = QLabel("未打开项目")
         self.info_bar.addWidget(self.project_label)
+        self._edit_info_btn = QPushButton("编辑")
+        self._edit_info_btn.clicked.connect(self._on_edit_project_info)
+        self._edit_info_btn.setEnabled(False)
+        self.info_bar.addWidget(self._edit_info_btn)
 
     def _create_bottom_toolbar(self):
         self.bottom_toolbar = QToolBar("操作")
@@ -367,6 +454,24 @@ class MainWindow(QMainWindow):
         # 默认项目名：YAML 文件名不含扩展名
         default_name = os.path.splitext(os.path.basename(yaml_path))[0]
 
+        # 弹出项目信息对话框：用户确认项目名、ROS2 版本、机器人轮式
+        dialog = ProjectInfoDialog(
+            self,
+            project_name=default_name,
+            ros2_version=project_model.ros2_version,
+            robot_type=project_model.robot_type,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        info = dialog.get_values()
+        if not info["project_name"]:
+            return
+
+        project_model.project_name = info["project_name"]
+        project_model.ros2_version = info["ros2_version"]
+        project_model.robot_type = info["robot_type"]
+
         # 让用户选择保存目录
         save_dir = QFileDialog.getExistingDirectory(
             self, "选择项目保存位置", self._projects_base_dir,
@@ -374,16 +479,6 @@ class MainWindow(QMainWindow):
         )
         if not save_dir:
             return
-
-        # 让用户输入项目名
-        project_name, ok = QInputDialog.getText(
-            self, "项目名称", "请输入项目名称：",
-            QLineEdit.Normal, default_name,
-        )
-        if not ok or not project_name.strip():
-            return
-
-        project_model.project_name = project_name.strip()
 
         try:
             project_dir = self._project_manager.new_project(project_model, save_dir)

@@ -8,6 +8,7 @@ from typing import Optional
 @dataclass
 class SensorConfig:
     """传感器配置（向导第 3 步）。"""
+    lidar_enabled: bool = False
     lidar_topic: str = "/scan"
     lidar_frame: str = "laser_frame"
     depth_camera_enabled: bool = False
@@ -128,6 +129,7 @@ class ProjectModel:
             "updated_at": self.updated_at,
             "wizard": {
                 "sensors": {
+                    "lidar_enabled": self.wizard.sensors.lidar_enabled,
                     "lidar_topic": self.wizard.sensors.lidar_topic,
                     "lidar_frame": self.wizard.sensors.lidar_frame,
                     "depth_camera_topic": self.wizard.sensors.depth_camera_topic,
@@ -152,6 +154,7 @@ class ProjectModel:
         sensors_data = wizard_data.get("sensors", {})
 
         sensors = SensorConfig(
+            lidar_enabled=sensors_data.get("lidar_enabled", False),
             lidar_topic=sensors_data.get("lidar_topic", "/scan"),
             lidar_frame=sensors_data.get("lidar_frame", "laser_frame"),
             depth_camera_enabled=sensors_data.get("depth_camera_enabled", False),

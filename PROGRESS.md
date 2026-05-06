@@ -1,6 +1,6 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v2.4
+**文档版本**：v2.5
 **更新日期**：2026-05-06
 **对应 PRD**：v1.3
 
@@ -23,7 +23,7 @@
 | 功能 | 位置 | 说明 |
 |------|------|------|
 | 项目数据模型 | `core/project_model.py` | `ProjectModel` dataclass，对应 `.nav2studio.json`，含序列化 `to_dict()` + 反序列化 `from_dict()` + 旧格式迁移 `_migrate_plugins()` |
-| 传感器配置模型 | `core/project_model.py:SensorConfig` | 激光雷达/深度相机/IMU 话题与坐标系 |
+| 传感器配置模型 | `core/project_model.py:SensorConfig` | 激光雷达（可选）/深度相机（可选）/IMU（可选）话题与坐标系，含 `lidar_enabled` 开关 |
 | 向导配置模型 | `core/project_model.py:WizardConfig` | 传感器 + 地图来源 |
 | 默认节点配置 | `core/project_model.py:_default_nodes()` | 9 个 Nav2 节点默认启用状态与类型 |
 | 默认插件配置 | `core/project_model.py:_default_plugins()` | 规划器/控制器/平滑器/代价地图层/Recovery，detail 格式（instance_name/plugin_type/params），初始 params 为空 |
@@ -37,11 +37,11 @@
 | 新建项目流程 | `ui/main_window.py:_on_new_project()` | 向导 → ProjectModel → QFileDialog 选位置 → ProjectManager.new_project() → 编辑页 |
 | 打开项目流程 | `ui/main_window.py:_on_open_project()` | QFileDialog 选目录 → ProjectManager.load() → 编辑页，含 `.nav2studio.json` 存在性检查 |
 | 启动页/编辑页切换 | `ui/main_window.py:_stack` | QStackedWidget 实现启动页与编辑页切换，打开/新建项目后自动跳转 |
-| 项目信息栏更新 | `ui/main_window.py:_show_editor_page()` | 打开项目后信息栏显示项目名/ROS2版本/机器人类型 |
+| 项目信息栏更新 | `ui/main_window.py:_show_editor_page()` | 打开项目后信息栏显示项目名/ROS2版本/机器人类型，点击「编辑」按钮可随时修改项目信息（ProjectInfoDialog） |
 | 向导数据转换 | `ui/wizard/project_wizard.py:to_project_model()` | 从向导字段值构建 ProjectModel + SensorConfig + WizardConfig |
 | 启动页最近项目加载 | `ui/start_page.py:load_recent_projects()` | 接收项目列表数据填充 QListWidget，双击打开项目 |
 | 保存项目 | `ui/main_window.py:_on_save_project()` | 调用 ProjectManager.save()，状态栏提示，支持 Ctrl+S 快捷键 |
-| 导入项目（YAML） | `ui/main_window.py:_on_import_yaml()` | 选择 .yaml 文件 → YamlImporter 解析 → 选择保存目录 → 输入项目名 → 创建新项目，含映射/未映射报告 |
+| 导入项目（YAML） | `ui/main_window.py:_on_import_yaml()` | 选择 .yaml 文件 → YamlImporter 解析 → 弹出 ProjectInfoDialog 让用户填写项目名/ROS2版本/机器人轮式 → 选择保存目录 → 创建新项目，含映射/未映射报告 |
 | 导出 YAML | `ui/main_window.py:_on_export_yaml()` | QFileDialog 选路径 → ProjectManager.export_yaml() → YamlGenerator 生成写入 |
 | 删除项目 | `ui/main_window.py:_on_delete_project()` | 二次确认对话框 → 删除当前项目则切回启动页 → ProjectManager.delete_project() → 刷新列表 |
 | 删除当前项目（菜单） | `ui/main_window.py:_on_delete_current_project()` | 文件菜单入口，删除当前打开的项目 |
@@ -116,9 +116,9 @@
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏/QStackedWidget(启动页+编辑页)/底部预览+工具栏，集成新建/打开项目功能 |
+| 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏（含编辑按钮）/QStackedWidget(启动页+编辑页)/底部预览+工具栏，集成新建/打开项目功能 |
 | 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除/复制按钮 + 双击打开 + 右键菜单（打开/复制/删除）+ 信号通知 MainWindow |
-| 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
+| 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法。机器人类型为可编辑 combo（预设+自定义输入），激光雷达可选 |
 | 节点拓扑图 | `ui/widgets/node_graph.py` | 拓扑排序分层布局、NodeItem 绘制（颜色按类型+禁用态）、复选框交互、EdgeItem 有向连线（带箭头）、依赖检查警告、添加自定义节点按钮（QInputDialog + custom_node_added 信号）、与 main_window 信号集成 |
 | 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list/dict）、嵌套 dict 参数可展开/折叠显示（CollapsibleDictWidget，支持递归嵌套）、插件参数（如 FollowPath）直接作为嵌套 dict 显示和编辑、load_params/get_params、值变更信号实时同步 ProjectModel（含插件参数双向同步）、基础模式（全部参数表单编辑）/专家模式（YAML 文本编辑器）、与 main_window 菜单集成 |
 | ~~插件选择器~~ | `ui/widgets/plugin_selector.py` | 已移除独立面板。插件参数（如 FollowPath 子参数）现直接在参数面板中编辑，与 node_params 统一管理 |
