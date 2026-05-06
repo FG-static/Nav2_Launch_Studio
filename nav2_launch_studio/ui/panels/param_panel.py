@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QScrollArea,
     QDoubleSpinBox, QSpinBox, QCheckBox,
     QLineEdit, QPushButton, QLabel,
-    QHBoxLayout, QTextEdit,
+    QHBoxLayout, QTextEdit, QToolButton, QFrame,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -227,6 +227,8 @@ class ParamPanelWidget(QWidget):
             widget.setValue(int(value) if value is not None else 0)
         elif isinstance(widget, QDoubleSpinBox):
             widget.setValue(float(value) if value is not None else 0.0)
+        elif isinstance(widget, CollapsibleDictWidget):
+            widget.set_value(value if isinstance(value, dict) else {})
         elif isinstance(widget, QLineEdit):
             if dtype == "list":
                 import yaml
@@ -242,6 +244,8 @@ class ParamPanelWidget(QWidget):
             return "int"
         if isinstance(value, float):
             return "float"
+        if isinstance(value, dict):
+            return "dict"
         if isinstance(value, list):
             return "list"
         return "string"
@@ -254,6 +258,8 @@ class ParamPanelWidget(QWidget):
             return self._create_int_widget(value)
         elif dtype == "float":
             return self._create_float_widget(value)
+        elif dtype == "dict":
+            return self._create_dict_widget(value)
         elif dtype == "list":
             return self._create_list_widget(value)
         else:
@@ -294,6 +300,12 @@ class ParamPanelWidget(QWidget):
         widget.editingFinished.connect(self._on_value_changed)
         return widget
 
+    def _create_dict_widget(self, value: dict) -> 'CollapsibleDictWidget':
+        """创建可展开/折叠的嵌套字典参数控件。"""
+        widget = CollapsibleDictWidget(value, parent_panel=self)
+        widget.value_changed.connect(self._on_value_changed)
+        return widget
+
     def _read_widget_value(self, widget: QWidget, dtype: str):
         """从控件读取值并转换为对应类型。"""
         if isinstance(widget, QCheckBox):
@@ -302,6 +314,8 @@ class ParamPanelWidget(QWidget):
             return widget.value()
         elif isinstance(widget, QDoubleSpinBox):
             return widget.value()
+        elif isinstance(widget, CollapsibleDictWidget):
+            return widget.get_value()
         elif isinstance(widget, QLineEdit):
             text = widget.text()
             if dtype == "list":
@@ -326,3 +340,152 @@ class ParamPanelWidget(QWidget):
         self.mode_btn.setText("基础模式" if checked else "专家模式")
         self._apply_mode()
         self.mode_changed.emit(self._mode)
+
+
+class CollapsibleDictWidget(QWidget):
+    """可展开/折叠的嵌套字典参数控件。
+
+    点击标题栏切换展开/折叠状态，展开时显示子参数表单。
+    支持递归嵌套：子值为 dict 时自动创建子 CollapsibleDictWidget。
+    """
+
+    value_changed = Signal()
+
+    def __init__(self, data: dict = None, parent_panel=None, parent=None):
+        super().__init__(parent)
+        self._parent_panel = parent_panel
+        self._child_widgets: dict[str, QWidget] = {}
+        self._child_types: dict[str, str] = {}
+        self._expanded = True
+        self._init_ui()
+        if data:
+            self._populate_children(data)
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(2)
+
+        # 折叠/展开按钮
+        self._toggle_btn = QToolButton()
+        self._toggle_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._toggle_btn.setArrowType(Qt.DownArrow)
+        self._toggle_btn.clicked.connect(self._toggle)
+        self._toggle_btn.setStyleSheet(
+            "QToolButton { border: none; padding: 2px; font-weight: bold; }"
+        )
+        layout.addWidget(self._toggle_btn)
+
+        # 子参数容器（带左边缩进线）
+        self._content_frame = QFrame()
+        self._content_frame.setFrameShape(QFrame.StyledPanel)
+        self._content_frame.setStyleSheet(
+            "QFrame { border-left: 2px solid #bbb; margin-left: 8px; padding-left: 4px; }"
+        )
+        content_layout = QVBoxLayout(self._content_frame)
+        content_layout.setContentsMargins(4, 2, 2, 2)
+
+        self._form_layout = QFormLayout()
+        self._form_layout.setLabelAlignment(Qt.AlignRight)
+        content_layout.addLayout(self._form_layout)
+
+        layout.addWidget(self._content_frame)
+
+    def set_title(self, title: str):
+        """设置分组标题。"""
+        self._toggle_btn.setText(title)
+
+    def _toggle(self):
+        """切换展开/折叠状态。"""
+        self._expanded = not self._expanded
+        self._content_frame.setVisible(self._expanded)
+        self._toggle_btn.setArrowType(
+            Qt.DownArrow if self._expanded else Qt.RightArrow
+        )
+
+    def _populate_children(self, data: dict):
+        """根据字典数据创建子参数控件。"""
+        self._clear_children()
+        for key, value in sorted(data.items()):
+            dtype = self._detect_type(value)
+            if dtype == "dict":
+                widget = CollapsibleDictWidget(value, self._parent_panel, self)
+                widget.set_title(key)
+                widget.value_changed.connect(self.value_changed)
+                self._form_layout.addRow(widget)
+            else:
+                widget = self._create_widget(dtype, value)
+                self._form_layout.addRow(key, widget)
+            self._child_widgets[key] = widget
+            self._child_types[key] = dtype
+
+    def _clear_children(self):
+        """清除所有子控件。"""
+        while self._form_layout.rowCount() > 0:
+            self._form_layout.removeRow(0)
+        self._child_widgets.clear()
+        self._child_types.clear()
+
+    def _detect_type(self, value) -> str:
+        """检测参数类型。"""
+        if self._parent_panel:
+            return self._parent_panel._detect_type(value)
+        # 回退：无父面板时的独立检测
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, dict):
+            return "dict"
+        if isinstance(value, list):
+            return "list"
+        return "string"
+
+    def _create_widget(self, dtype: str, value) -> QWidget:
+        """创建子参数控件。"""
+        if self._parent_panel:
+            return self._parent_panel._create_widget_for_type(dtype, value)
+        # 回退：无父面板时创建基本控件
+        widget = QLineEdit(str(value) if value is not None else "")
+        widget.editingFinished.connect(self.value_changed)
+        return widget
+
+    def get_value(self) -> dict:
+        """读取所有子参数值，返回嵌套字典。"""
+        result = {}
+        for key, widget in self._child_widgets.items():
+            dtype = self._child_types.get(key, "string")
+            if isinstance(widget, CollapsibleDictWidget):
+                result[key] = widget.get_value()
+            elif self._parent_panel:
+                result[key] = self._parent_panel._read_widget_value(widget, dtype)
+            else:
+                result[key] = self._read_fallback(widget)
+        return result
+
+    def set_value(self, data: dict):
+        """从字典设置子参数值。"""
+        if not isinstance(data, dict):
+            return
+        for key, widget in self._child_widgets.items():
+            if key in data:
+                dtype = self._child_types.get(key, "string")
+                value = data[key]
+                if isinstance(widget, CollapsibleDictWidget):
+                    widget.set_value(value if isinstance(value, dict) else {})
+                elif self._parent_panel:
+                    self._parent_panel._set_widget_value(widget, dtype, value)
+
+    def _read_fallback(self, widget: QWidget):
+        """无父面板时的值读取回退。"""
+        if isinstance(widget, QCheckBox):
+            return widget.isChecked()
+        if isinstance(widget, QSpinBox):
+            return widget.value()
+        if isinstance(widget, QDoubleSpinBox):
+            return widget.value()
+        if isinstance(widget, QLineEdit):
+            return widget.text()
+        return None
