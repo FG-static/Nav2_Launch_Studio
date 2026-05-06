@@ -49,6 +49,70 @@ def _yaml_list(items):
     return "[" + ", ".join(parts) + "]"
 
 
+def _sync_plugin_params_from_node_params(plugins: dict, node_params: dict):
+    """从 node_params 中读取插件实例的参数，同步到 plugins dict。
+
+    插件参数存储在 model.params 中（如 controller_server.FollowPath），
+    需要同步到 plugins dict 供模板输出插件声明。
+    """
+    # 单选插件
+    for node_name, plugin_key in [
+        ("controller_server", "controller"),
+        ("planner_server", "planner"),
+        ("smoother_server", "smoother"),
+    ]:
+        plugin = plugins.get(plugin_key)
+        if not plugin or not isinstance(plugin, dict):
+            continue
+        inst_name = plugin.get("instance_name", "")
+        if not inst_name:
+            continue
+        np = node_params.get(node_name, {})
+        if isinstance(np, dict) and inst_name in np:
+            inst_data = np[inst_name]
+            if isinstance(inst_data, dict):
+                plugin["params"] = {k: v for k, v in inst_data.items()
+                                    if k != "plugin"}
+                if "plugin" in inst_data:
+                    plugin["plugin_type"] = inst_data["plugin"]
+
+    # 多选插件：recovery_behaviors
+    recovery = plugins.get("recovery_behaviors")
+    if isinstance(recovery, list):
+        np = node_params.get("behavior_server", {})
+        if isinstance(np, dict):
+            for item in recovery:
+                inst_name = item.get("instance_name", "")
+                if inst_name and inst_name in np:
+                    inst_data = np[inst_name]
+                    if isinstance(inst_data, dict):
+                        item["params"] = {k: v for k, v in inst_data.items()
+                                          if k != "plugin"}
+                        if "plugin" in inst_data:
+                            item["plugin_type"] = inst_data["plugin"]
+
+    # 代价地图层
+    for cm_key, layer_key in [
+        ("global_costmap", "global_costmap_layers"),
+        ("local_costmap", "local_costmap_layers"),
+    ]:
+        layers = plugins.get(layer_key)
+        if not isinstance(layers, list):
+            continue
+        np = node_params.get(cm_key, {})
+        if not isinstance(np, dict):
+            continue
+        for layer in layers:
+            inst_name = layer.get("instance_name", "")
+            if inst_name and inst_name in np:
+                inst_data = np[inst_name]
+                if isinstance(inst_data, dict):
+                    layer["params"] = {k: v for k, v in inst_data.items()
+                                       if k != "plugin"}
+                    if "plugin" in inst_data:
+                        layer["plugin_type"] = inst_data["plugin"]
+
+
 def _remove_plugin_duplicates(node_params: dict, plugins: dict):
     """从 node_params 中移除已作为主插件声明的实例名和列表键，避免重复输出。
 
@@ -165,8 +229,10 @@ class YamlGenerator:
         if bt_nav_params:
             node_params["bt_navigator"] = bt_nav_params
 
+        # 从 model.params 读取插件参数到 plugins dict（模板从 plugins 输出插件声明）
+        plugins = dict(model.plugins or {})
+        _sync_plugin_params_from_node_params(plugins, node_params)
         # 从 node_params 中移除已作为主插件输出的实例名，避免重复
-        plugins = model.plugins or {}
         _remove_plugin_duplicates(node_params, plugins)
 
         return {

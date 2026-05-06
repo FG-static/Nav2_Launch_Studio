@@ -4,8 +4,9 @@ import math
 from collections import deque
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QGraphicsView, QGraphicsScene,
     QGraphicsObject, QGraphicsItem, QGraphicsLineItem, QMessageBox,
+    QInputDialog, QLineEdit,
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPolygonF
@@ -63,6 +64,7 @@ class NodeGraphWidget(QWidget):
     # 信号
     node_clicked = Signal(str)       # 节点名称
     node_toggled = Signal(str, bool)  # 节点名称, 是否启用
+    custom_node_added = Signal(str)  # 新节点名称
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,6 +82,15 @@ class NodeGraphWidget(QWidget):
         self.view.setDragMode(QGraphicsView.RubberBandDrag) # 拖拽选择
         self.view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate) # 全量更新
         layout.addWidget(self.view)
+
+        # 添加自定义节点按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.add_node_btn = QPushButton("✚ 添加自定义节点")
+        self.add_node_btn.clicked.connect(self._on_add_custom_node)
+        btn_layout.addWidget(self.add_node_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
 
     def load_nodes(self, node_config: dict):
         """从节点配置加载拓扑图。
@@ -240,6 +251,20 @@ class NodeGraphWidget(QWidget):
         """根据节点启用状态更新连线视觉。"""
         for edge in self._edges:
             edge.update_visual()
+
+    def _on_add_custom_node(self):
+        """弹出对话框添加自定义节点。"""
+        name, ok = QInputDialog.getText(
+            self, "添加自定义节点", "节点名称：",
+            QLineEdit.Normal, "",
+        )
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        if name in self._node_items:
+            QMessageBox.warning(self, "节点已存在", f"节点「{name}」已存在。")
+            return
+        self.custom_node_added.emit(name)
 
     def _on_node_clicked(self, name: str):
         self.node_clicked.emit(name)

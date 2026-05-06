@@ -12,12 +12,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 
 from nav2_launch_studio.core.project_manager import ProjectManager
-from nav2_launch_studio.core.plugin_registry import PluginRegistry
 from nav2_launch_studio.core.yaml_importer import YamlImporter
 from nav2_launch_studio.ui.start_page import StartPageWidget
 from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard
 from nav2_launch_studio.ui.widgets.node_graph import NodeGraphWidget
-from nav2_launch_studio.ui.widgets.plugin_selector import PluginSelectorWidget
 from nav2_launch_studio.ui.widgets.bt_tree_selector import BTTreeSelectorWidget
 from nav2_launch_studio.ui.panels.param_panel import ParamPanelWidget
 
@@ -40,7 +38,6 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._project_manager = ProjectManager()
-        self._plugin_registry = PluginRegistry()
         self._projects_base_dir = os.path.expanduser("~/nav2_studio_projects")
         self.setWindowTitle("Nav2 Launch Studio")
         self.resize(1280, 800)
@@ -82,27 +79,21 @@ class MainWindow(QMainWindow):
         self._node_graph = NodeGraphWidget()
         self._node_graph.node_clicked.connect(self._on_node_clicked)
         self._node_graph.node_toggled.connect(self._on_node_toggled)
+        self._node_graph.custom_node_added.connect(self._on_custom_node_added)
         left_layout.addWidget(self._node_graph, stretch=3)
         self._bt_tree_selector = BTTreeSelectorWidget()
         self._bt_tree_selector.bt_tree_changed.connect(self._on_bt_tree_changed)
         left_layout.addWidget(self._bt_tree_selector, stretch=1)
         self.main_splitter.addWidget(left_widget)
 
-        # 中右侧：参数面板 + 插件选择器（垂直分割）
+        # 右侧：参数面板
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_splitter = QSplitter(Qt.Vertical)
         self._param_panel = ParamPanelWidget()
         self._param_panel.param_changed.connect(self._on_param_changed)
         self._param_panel.params_replaced.connect(self._on_params_replaced)
-        right_splitter.addWidget(self._param_panel)
-        self._plugin_selector = PluginSelectorWidget()
-        self._plugin_selector.plugin_changed.connect(self._on_plugin_changed)
-        right_splitter.addWidget(self._plugin_selector)
-        right_splitter.setStretchFactor(0, 2)
-        right_splitter.setStretchFactor(1, 1)
-        right_layout.addWidget(right_splitter)
+        right_layout.addWidget(self._param_panel)
         self.main_splitter.addWidget(right_widget)
 
         self.main_splitter.setStretchFactor(0, 2)
@@ -153,9 +144,6 @@ class MainWindow(QMainWindow):
             )
             # 加载节点拓扑图
             self._node_graph.load_nodes(project.nodes)
-            # 加载插件选择器（根据项目数据动态创建 tab）
-            self._plugin_selector.load_plugins(self._plugin_registry, project.plugins, project.nodes)
-            self._plugin_selector.set_selected_plugins(project.plugins)
             # 加载 BT 树选择器
             self._bt_tree_selector.load_builtin_templates()
             self._bt_tree_selector.detect_groot2()
@@ -499,6 +487,19 @@ class MainWindow(QMainWindow):
             status = "启用" if enabled else "禁用"
             self.statusBar().showMessage(f"节点 {node_name} 已{status}", 2000)
 
+    def _on_custom_node_added(self, node_name: str):
+        """添加自定义节点到项目并刷新拓扑图。"""
+        project = self._project_manager.current_project
+        if not project:
+            return
+        if node_name in project.nodes:
+            return
+        project.nodes[node_name] = {"enabled": True, "node_type": "optional"}
+        project.params[node_name] = {}
+        project.touch()
+        self._node_graph.load_nodes(project.nodes)
+        self.statusBar().showMessage(f"已添加自定义节点：{node_name}", 2000)
+
     def _on_param_changed(self, node_name: str, param_key: str, value):
         """参数面板单个值变更，同步到 ProjectModel。"""
         project = self._project_manager.current_project
@@ -506,6 +507,7 @@ class MainWindow(QMainWindow):
             if node_name not in project.params:
                 project.params[node_name] = {}
             project.params[node_name][param_key] = value
+            self._sync_plugin_params(project, node_name, param_key, value)
             project.touch()
 
     def _on_params_replaced(self, node_name: str, new_params: dict):
@@ -513,23 +515,57 @@ class MainWindow(QMainWindow):
         project = self._project_manager.current_project
         if project:
             project.params[node_name] = new_params
+            for key, value in new_params.items():
+                self._sync_plugin_params(project, node_name, key, value)
             project.touch()
 
-    def _on_plugin_changed(self, category: str, plugin_id: str):
-        """插件选择变更，同步到 ProjectModel。"""
-        project = self._project_manager.current_project
-        if not project:
+    def _sync_plugin_params(self, project, node_name: str, param_key: str, value):
+        """将参数面板中编辑的插件参数同步到 model.plugins。"""
+        plugins = project.plugins
+        if not plugins:
             return
 
-        selected = self._plugin_selector.get_selected_plugins()
-        project.plugins["planner"] = selected["planner"]
-        project.plugins["controller"] = selected["controller"]
-        project.plugins["smoother"] = selected["smoother"]
-        project.plugins["global_costmap_layers"] = selected["global_costmap_layers"]
-        project.plugins["local_costmap_layers"] = selected["local_costmap_layers"]
-        project.plugins["recovery_behaviors"] = selected["recovery_behaviors"]
-        project.touch()
-        self.statusBar().showMessage(f"插件已更新：{category} → {plugin_id}", 2000)
+        # 单选插件：planner, controller, smoother
+        for cat, expected_node in [
+            ("planner", "planner_server"),
+            ("controller", "controller_server"),
+            ("smoother", "smoother_server"),
+        ]:
+            if node_name != expected_node:
+                continue
+            plugin = plugins.get(cat)
+            if isinstance(plugin, dict) and plugin.get("instance_name") == param_key:
+                if isinstance(value, dict):
+                    plugin["params"] = {k: v for k, v in value.items() if k != "plugin"}
+                    if "plugin" in value:
+                        plugin["plugin_type"] = value["plugin"]
+
+        # 多选插件：recovery_behaviors
+        if node_name == "behavior_server":
+            recovery = plugins.get("recovery_behaviors")
+            if isinstance(recovery, list):
+                for item in recovery:
+                    if isinstance(item, dict) and item.get("instance_name") == param_key:
+                        if isinstance(value, dict):
+                            item["params"] = {k: v for k, v in value.items() if k != "plugin"}
+                            if "plugin" in value:
+                                item["plugin_type"] = value["plugin"]
+
+        # 代价地图层
+        for cm_key, layer_key in [
+            ("global_costmap", "global_costmap_layers"),
+            ("local_costmap", "local_costmap_layers"),
+        ]:
+            if node_name != cm_key:
+                continue
+            layers = plugins.get(layer_key)
+            if isinstance(layers, list):
+                for layer in layers:
+                    if isinstance(layer, dict) and layer.get("instance_name") == param_key:
+                        if isinstance(value, dict):
+                            layer["params"] = {k: v for k, v in value.items() if k != "plugin"}
+                            if "plugin" in value:
+                                layer["plugin_type"] = value["plugin"]
 
     def _on_bt_tree_changed(self, bt_tree: str):
         """BT 树选择变更，同步到 ProjectModel。"""

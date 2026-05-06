@@ -204,7 +204,6 @@ class YamlImporter:
                             "plugin_type": "",
                             "params": {},
                         })
-                        exclude_keys.add(inst_name)
                         continue
                     ptype = inst_data.get("plugin", "")
                     inst_params = {k: v for k, v in inst_data.items() if k != "plugin"}
@@ -214,7 +213,6 @@ class YamlImporter:
                         "params": inst_params,
                         "_list_key": list_key,
                     })
-                    exclude_keys.add(inst_name)
                     report.mapped_count += 1
                     report.mapped_items.append(f"Recovery: {ptype} ({inst_name})")
                 if items:
@@ -233,7 +231,6 @@ class YamlImporter:
                             "params": inst_params,
                             "_list_key": list_key,
                         }
-                        exclude_keys.add(inst_name)
                         imported_categories.add(model_key)
                         report.mapped_count += 1
                         report.mapped_items.append(
@@ -303,11 +300,8 @@ class YamlImporter:
             if not cm_params:
                 continue
 
-            # 排除 plugins 列表键和各层实例名
+            # 排除 plugins 列表键（层实例名保留，显示在参数面板中）
             exclude = {"plugins"}
-            layer_names = cm_params.get("plugins", [])
-            if isinstance(layer_names, list):
-                exclude.update(layer_names)
 
             extra = {}
             for key, value in cm_params.items():
@@ -326,7 +320,6 @@ class YamlImporter:
     ) -> dict:
         """提取各节点 ros__parameters 中的非插件参数。"""
         params = {}
-
         for node_name in nodes:
             if node_name not in data:
                 continue
@@ -335,6 +328,13 @@ class YamlImporter:
             node_params = _get_ros_params(data[node_name])
             if not node_params:
                 continue
+            # exclude_keys 包含该节点中已被识别为插件配置的键名。
+            # 这些键对应的参数（如控制器_plugins、FollowPath 插件实例等）
+            # 已在插件导入阶段处理，此处应排除以避免重复导入。
+            # 剩余键作为普通节点参数保留，确保 round-trip 一致性。
+            # plugin_keys_per_node 字典在 _import_params 方法中构建，
+            # 记录每个节点中被识别为插件配置的键名。
+            # 这些键对应的参数已在插件导入阶段处理，此处应排除以避免重复导入。
 
             exclude_keys = plugin_keys_per_node.get(node_name, set())
             extra = {}

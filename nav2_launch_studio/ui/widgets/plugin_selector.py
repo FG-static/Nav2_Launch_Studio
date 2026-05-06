@@ -235,6 +235,7 @@ class PluginGroupWidget(QGroupBox):
 
         先在预设中查找匹配项，无匹配则设置为自定义文本。
         参数 detail 可保留原始 instance_name 等信息。
+        匹配到内置插件时，显示文本更新为导入的 plugin_type 值。
         """
         if self.multi_select:
             return
@@ -243,6 +244,8 @@ class PluginGroupWidget(QGroupBox):
                 idx = self.combo.findData(i)
                 if idx >= 0:
                     self.combo.setCurrentIndex(idx)
+                    # 显示参数文件中实际的 plugin_type 值，而非内置的友好名称
+                    self.combo.setItemText(idx, plugin_type)
                 return
         # 无匹配预设：设置为自定义文本，保存原始 detail
         self.combo.setEditText(plugin_type)

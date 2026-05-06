@@ -1,7 +1,7 @@
 # Nav2 Launch Studio 项目进度
 
-**文档版本**：v2.2  
-**更新日期**：2026-05-04  
+**文档版本**：v2.4
+**更新日期**：2026-05-06
 **对应 PRD**：v1.3
 
 ---
@@ -14,6 +14,7 @@
 |------|------|------|
 | ROS2 ament_python 包结构 | `package.xml`, `setup.py`, `setup.cfg` | 标准 ROS2 包，`ros2 run nav2_launch_studio gui` 启动 |
 | colcon 构建 | 根目录 | 构建通过，包可被 `ros2 pkg list` 识别 |
+| PyInstaller 打包 | `build.sh`, `nav2_launch_studio.spec` | 可打包为独立可执行程序（`./build.sh`），输出到 `dist/Nav2LaunchStudio/`，含 Jinja2 模板资源 |
 | PySide6 GUI 入口 | `nav2_launch_studio/main.py` | QApplication + MainWindow 启动 |
 | 测试框架 | `pytest.ini`, `test/` | 33 个测试全部通过 |
 
@@ -60,7 +61,7 @@
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| Jinja2 YAML 生成 | `core/yaml_generator.py:generate()` | 从 ProjectModel 构建 `plugins` + `node_params` 上下文 → Jinja2 渲染，不依赖 PluginRegistry |
+| Jinja2 YAML 生成 | `core/yaml_generator.py:generate()` | 从 ProjectModel 构建 `plugins` + `node_params` 上下文 → Jinja2 渲染。`_sync_plugin_params_from_node_params` 从 model.params 同步插件参数到 plugins dict，确保参数面板编辑的插件值正确输出 |
 | 模板上下文构建 | `core/yaml_generator.py:_build_context()` | 收集启用节点、plugins dict（含 `_list_key`/instance_name/plugin_type/params）、node_params（含 bt_tree 合并） |
 | 插件重复消除 | `core/yaml_generator.py:_remove_plugin_duplicates()` | 从 node_params 中移除已作为插件输出的实例名和插件列表键（`_list_key`），避免模板重复输出 |
 | 递归参数渲染宏 | `templates/nav2_params.yaml.jinja2:render_params()` | 递归渲染 dict/scalar/list，跳过 `_` 前缀元数据键，零硬编码参数值 |
@@ -68,7 +69,7 @@
 | 零硬编码模板 | `templates/nav2_params.yaml.jinja2` | 只输出结构骨架（节点名、ros__parameters、插件声明），所有参数从 model 动态渲染；未知节点自动输出 |
 | 模板条件输出 | `templates/nav2_params.yaml.jinja2` | 每个插件类别（planner/controller/smoother/costmap/recovery）添加 None 检查，不存在则跳过输出 |
 | YAML 通用导入 | `core/yaml_importer.py:import_file()/import_text()` | PyYAML 解析 → 通用读取所有插件声明 → 分离插件实例与节点参数，不区分内置/自定义 |
-| 插件通用提取 | `core/yaml_importer.py:_import_plugins()` | 从 `*_plugins` 列表声明提取插件实例，支持别名（`planner_plugin_ids`），`_list_key` 记录原始键名，支持 smoother 从 `smoother_server` 提取 |
+| 插件通用提取 | `core/yaml_importer.py:_import_plugins()` | 从 `*_plugins` 列表声明提取插件实例，支持别名（`planner_plugin_ids`），`_list_key` 记录原始键名，支持 smoother 从 `smoother_server` 提取。插件实例 dict 同时写入 model.params（含 plugin + 子参数），参数面板可直接编辑 |
 | 插件类别跟踪 | `core/yaml_importer.py:imported_categories` | 跟踪实际导入的插件类别，未在 YAML 中出现的类别设为 None，确保导入/导出/显示三端一致 |
 | 未知节点自动识别 | `core/yaml_importer.py:_import_nodes()` | 含 `ros__parameters` 的顶层键自动识别为节点（如 collision_monitor, docking_server） |
 | 子插件参数保留 | `core/yaml_importer.py:_import_plugins()` | `progress_checker_plugins` 等子插件列表的实例和参数保留在 node_params 中，不丢失 |
@@ -118,9 +119,9 @@
 | 主窗口布局 | `ui/main_window.py:MainWindow` | 菜单栏/项目信息栏/QStackedWidget(启动页+编辑页)/底部预览+工具栏，集成新建/打开项目功能 |
 | 启动页 | `ui/start_page.py:StartPageWidget` | 项目列表 + 新建/打开/导入/删除/复制按钮 + 双击打开 + 右键菜单（打开/复制/删除）+ 信号通知 MainWindow |
 | 项目向导 | `ui/wizard/project_wizard.py:ProjectWizard` | 4 步向导，含向导字段注册 + `to_project_model()` 方法 |
-| 节点拓扑图 | `ui/widgets/node_graph.py` | 拓扑排序分层布局、NodeItem 绘制（颜色按类型+禁用态）、复选框交互、EdgeItem 有向连线（带箭头）、依赖检查警告、与 main_window 信号集成 |
-| 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list）、load_params/get_params、值变更信号实时同步 ProjectModel、基础模式（全部参数表单编辑）/专家模式（YAML 文本编辑器）、与 main_window 菜单集成 |
-| 插件选择器 | `ui/widgets/plugin_selector.py` | Tab 按项目数据动态创建（addTab/removeTab）、从 PluginRegistry 填充、combo 可编辑支持自定义插件名、set_selected_plugins 设置选中（支持自定义 plugin_type）、get_selected_plugins 返回 detail 格式、自定义插件注册对话框（自动锁定当前 tab 分类）、与 main_window 信号集成 |
+| 节点拓扑图 | `ui/widgets/node_graph.py` | 拓扑排序分层布局、NodeItem 绘制（颜色按类型+禁用态）、复选框交互、EdgeItem 有向连线（带箭头）、依赖检查警告、添加自定义节点按钮（QInputDialog + custom_node_added 信号）、与 main_window 信号集成 |
+| 参数面板 | `ui/panels/param_panel.py` | 动态 key-value 表单（按类型自动选控件：bool/int/float/string/list/dict）、嵌套 dict 参数可展开/折叠显示（CollapsibleDictWidget，支持递归嵌套）、插件参数（如 FollowPath）直接作为嵌套 dict 显示和编辑、load_params/get_params、值变更信号实时同步 ProjectModel（含插件参数双向同步）、基础模式（全部参数表单编辑）/专家模式（YAML 文本编辑器）、与 main_window 菜单集成 |
+| ~~插件选择器~~ | `ui/widgets/plugin_selector.py` | 已移除独立面板。插件参数（如 FollowPath 子参数）现直接在参数面板中编辑，与 node_params 统一管理 |
 | BT 树选择器 | `ui/widgets/bt_tree_selector.py` | 从 BTTreeDiscovery 扫描模板填充列表、自定义 BT 树文件选择、set_current_tree 从模型设置选中、Groot2 检测（支持 PATH 命令和 AppImage）与预览按钮、与 main_window 信号集成 |
 | YAML 预览骨架 | `ui/panels/yaml_preview.py` | 只读文本区 + 复制/导出按钮 |
 | 键值编辑器骨架 | `ui/widgets/key_value_editor.py` | 表格 + 添加/删除/YAML 导入 |

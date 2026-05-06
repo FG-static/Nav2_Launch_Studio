@@ -217,13 +217,16 @@ def test_importer_node_params():
     assert "use_sim_time" in amcl_params
     assert amcl_params["alpha1"] == 0.2
 
-    # controller_server 的非插件参数
+    # controller_server 的参数（含插件实例 dict）
     ctrl_params = model.params.get("controller_server", {})
     assert "controller_frequency" in ctrl_params
     assert "use_sim_time" in ctrl_params
-    # controller_plugins 和 FollowPath 不应在 params 中
+    # controller_plugins 列表键不在 params 中
     assert "controller_plugins" not in ctrl_params
-    assert "FollowPath" not in ctrl_params
+    # FollowPath 实例 dict 在 params 中（含 plugin 和子参数）
+    assert "FollowPath" in ctrl_params
+    assert isinstance(ctrl_params["FollowPath"], dict)
+    assert ctrl_params["FollowPath"]["plugin"] == "nav2_mppi_controller::MPPIController"
 
 
 def test_roundtrip():
