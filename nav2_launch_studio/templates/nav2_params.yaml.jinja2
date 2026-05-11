@@ -108,21 +108,17 @@ waypoint_follower:
 {{ render_params(node_params['waypoint_follower'], 4) }}
 {% endif %}
 {% endif %}
-{% if 'map_server' in enabled_nodes %}
+{% if node_params.get('map_server') %}
 
 map_server:
   ros__parameters:
-{% if node_params.get('map_server') %}
 {{ render_params(node_params['map_server'], 4) }}
 {% endif %}
-{% endif %}
-{% if 'lifecycle_manager' in enabled_nodes %}
+{% if node_params.get('lifecycle_manager') %}
 
 lifecycle_manager:
   ros__parameters:
-{% if node_params.get('lifecycle_manager') %}
 {{ render_params(node_params['lifecycle_manager'], 4) }}
-{% endif %}
 {% endif %}
 {% for node_name in enabled_nodes %}
 {% if node_name not in known_nodes and node_name not in ['global_costmap', 'local_costmap'] %}

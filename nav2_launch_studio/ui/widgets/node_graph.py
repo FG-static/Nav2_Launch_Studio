@@ -50,6 +50,48 @@ def _type_label(node_type: str) -> str:
     return "可选"
 
 
+class PannableGraphicsView(QGraphicsView):
+    """支持鼠标中键拖拽平移和滚轮缩放的 QGraphicsView。"""
+
+    def __init__(self, scene=None, parent=None):
+        super().__init__(scene, parent)
+        self._panning = False
+        self._pan_start = QPointF()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self._panning = True
+            self._pan_start = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._panning:
+            delta = event.position() - self._pan_start
+            self._pan_start = event.position()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - int(delta.x()))
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - int(delta.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self._panning = False
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        self.scale(factor, factor)
+
+
 class NodeGraphWidget(QWidget):
     """Nav2 节点交互式拓扑图。
 
@@ -77,7 +119,7 @@ class NodeGraphWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.scene = NodeGraphScene()
-        self.view = QGraphicsView(self.scene)
+        self.view = PannableGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.Antialiasing) # 抗锯齿渲染
         self.view.setDragMode(QGraphicsView.RubberBandDrag) # 拖拽选择
         self.view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate) # 全量更新
