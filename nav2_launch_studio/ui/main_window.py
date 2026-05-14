@@ -14,6 +14,7 @@ from PySide6.QtGui import QKeySequence
 
 from nav2_launch_studio.core.project_manager import ProjectManager
 from nav2_launch_studio.core.yaml_importer import YamlImporter
+from nav2_launch_studio.core.template_manager import TemplateManager
 from nav2_launch_studio.ui.start_page import StartPageWidget
 from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard, RobotTypePage
 from nav2_launch_studio.ui.widgets.node_graph import NodeGraphWidget
@@ -148,6 +149,8 @@ class MainWindow(QMainWindow):
         self._param_panel = ParamPanelWidget()
         self._param_panel.param_changed.connect(self._on_param_changed)
         self._param_panel.params_replaced.connect(self._on_params_replaced)
+        self._param_panel.save_template_requested.connect(self._on_save_template)
+        self._param_panel.load_template_requested.connect(self._on_load_template)
         right_layout.addWidget(self._param_panel)
         self.main_splitter.addWidget(right_widget)
 
@@ -661,6 +664,71 @@ class MainWindow(QMainWindow):
                             layer["params"] = {k: v for k, v in value.items() if k != "plugin"}
                             if "plugin" in value:
                                 layer["plugin_type"] = value["plugin"]
+
+    def _on_save_template(self):
+        """保存当前节点参数为模版。"""
+        project = self._project_manager.current_project
+        if not project or not self._project_manager.project_dir:
+            self.statusBar().showMessage("请先打开项目", 2000)
+            return
+
+        node_name = self._param_panel._current_node
+        if not node_name:
+            self.statusBar().showMessage("请先选择一个节点", 2000)
+            return
+
+        params = self._param_panel.get_params()
+        if not params:
+            self.statusBar().showMessage("当前节点无参数可保存", 2000)
+            return
+
+        name, ok = QInputDialog.getText(self, "保存为模版", "模版名称：")
+        if not ok or not name.strip():
+            return
+
+        try:
+            mgr = TemplateManager(self._project_manager.project_dir)
+            path = mgr.save_template(name.strip(), node_name, params)
+            self.statusBar().showMessage(f"模版已保存：{path}", 3000)
+        except Exception as e:
+            QMessageBox.warning(self, "保存模版失败", str(e))
+
+    def _on_load_template(self):
+        """从模版加载参数替换当前节点参数。"""
+        project = self._project_manager.current_project
+        if not project or not self._project_manager.project_dir:
+            self.statusBar().showMessage("请先打开项目", 2000)
+            return
+
+        node_name = self._param_panel._current_node
+        if not node_name:
+            self.statusBar().showMessage("请先选择一个节点", 2000)
+            return
+
+        mgr = TemplateManager(self._project_manager.project_dir)
+        templates = mgr.list_templates()
+        if not templates:
+            self.statusBar().showMessage("该项目暂无模版", 2000)
+            return
+
+        # 弹出模版选择对话框
+        items = [f"{t['name']}  ({t['node_name']})" for t in templates]
+        item, ok = QInputDialog.getItem(self, "从模版加载", "选择模版：", items, 0, False)
+        if not ok:
+            return
+
+        idx = items.index(item)
+        filepath = templates[idx]["file"]
+
+        try:
+            tmpl = mgr.load_template(filepath)
+            new_params = tmpl["params"]
+            # 用模版参数完整替换当前面板
+            self._param_panel.load_params(node_name, new_params)
+            self._param_panel.params_replaced.emit(node_name, new_params)
+            self.statusBar().showMessage(f"已加载模版：{tmpl['name']}", 3000)
+        except Exception as e:
+            QMessageBox.warning(self, "加载模版失败", str(e))
 
     def _on_bt_tree_changed(self, bt_tree: str):
         """BT 树选择变更，同步到 ProjectModel。"""

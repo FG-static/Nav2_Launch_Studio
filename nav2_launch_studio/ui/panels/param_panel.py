@@ -24,6 +24,8 @@ class ParamPanelWidget(QWidget):
     param_changed = Signal(str, str, object)  # 节点名, 参数键, 值
     params_replaced = Signal(str, dict)       # 节点名, 完整新参数字典（专家模式批量替换）
     mode_changed = Signal(str)  # "basic" 或 "expert"
+    save_template_requested = Signal()         # 请求保存为模版
+    load_template_requested = Signal()         # 请求从模版加载
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,6 +45,12 @@ class ParamPanelWidget(QWidget):
         self.node_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         header_layout.addWidget(self.node_label)
         header_layout.addStretch()
+        self.save_template_btn = QPushButton("保存为模版")
+        self.save_template_btn.clicked.connect(self.save_template_requested.emit)
+        header_layout.addWidget(self.save_template_btn)
+        self.load_template_btn = QPushButton("从模版加载")
+        self.load_template_btn.clicked.connect(self.load_template_requested.emit)
+        header_layout.addWidget(self.load_template_btn)
         self.mode_btn = QPushButton("专家模式")
         self.mode_btn.setCheckable(True)
         self.mode_btn.toggled.connect(self._toggle_mode)
