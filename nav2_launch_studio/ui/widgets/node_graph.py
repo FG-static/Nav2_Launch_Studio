@@ -14,6 +14,9 @@ from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPolygonF
 from nav2_launch_studio.core.node_dependencies import (
     NODE_DEPENDENCIES, NODE_TYPES, MANDATORY_NODES, check_disable_allowed,
 )
+from nav2_launch_studio.core.change_tracker import (
+    ChangeType, get_badge_color, get_highlight_color,
+)
 
 
 # ---- 颜色常量 ----
@@ -99,6 +102,7 @@ class NodeGraphWidget(QWidget):
     - 有向图展示 Nav2 节点树
     - 节点显示：名称、启用复选框、类型标签
     - 颜色编码：蓝色=必选，绿色=推荐，灰色=可选
+    - 节点变更徽标：A=新增，M=修改，D=删除（Git 工作树风格）
     - 点击节点 -> 打开参数面板
     - 切换启用/禁用时检查依赖关系
     """
@@ -113,6 +117,23 @@ class NodeGraphWidget(QWidget):
         self._node_items: dict[str, NodeItem] = {}
         self._edges: list[EdgeItem] = []
         self._init_ui()
+
+    def update_node_badge(self, node_name: str, change_type: ChangeType):
+        """更新指定节点的变更徽标。"""
+        item = self._node_items.get(node_name)
+        if item:
+            item.set_change_type(change_type)
+
+    def clear_all_badges(self):
+        """清除所有节点的变更徽标。"""
+        for item in self._node_items.values():
+            item.set_change_type(ChangeType.NONE)
+
+    def update_changed_badges(self, changed_nodes: dict):
+        """批量更新有变更的节点徽标，未变更的清除。"""
+        for name, item in self._node_items.items():
+            change_type = changed_nodes.get(name, ChangeType.NONE)
+            item.set_change_type(change_type)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -347,6 +368,7 @@ class NodeItem(QGraphicsObject):
         self.name = name
         self.node_type = node_type
         self.enabled = enabled
+        self._change_type = ChangeType.NONE  # 变更状态
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setCursor(Qt.PointingHandCursor)
         # 预计算复选框位置，避免每次绘制都计算
@@ -356,6 +378,12 @@ class NodeItem(QGraphicsObject):
             self.CHECKBOX_SIZE,
             self.CHECKBOX_SIZE,
         )
+
+    def set_change_type(self, change_type: ChangeType):
+        """设置节点的变更类型，触发重绘。"""
+        if self._change_type != change_type:
+            self._change_type = change_type
+            self.update()
 
     def boundingRect(self) -> QRectF:
         '''返回节点占用的矩形区域。'''
@@ -406,6 +434,39 @@ class NodeItem(QGraphicsObject):
 
         # ---- 复选框 ----
         self._paint_checkbox(painter)
+
+        # ---- 变更徽标 ----
+        if self._change_type != ChangeType.NONE:
+            self._paint_badge(painter)
+
+    def _paint_badge(self, painter: QPainter):
+        """绘制变更徽标（Git 工作树风格字母标记）。"""
+        color_tuple = get_badge_color(self._change_type)
+        if not color_tuple:
+            return
+        badge_color = QColor(*color_tuple)
+
+        # 徽标位置：右上角
+        badge_size = 18
+        badge_rect = QRectF(
+            NODE_WIDTH - badge_size - 2,
+            2,
+            badge_size,
+            badge_size,
+        )
+
+        # 绘制圆形背景
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(badge_color))
+        painter.drawEllipse(badge_rect)
+
+        # 绘制字母
+        painter.setPen(QColor(255, 255, 255))
+        font = QFont()
+        font.setPointSize(9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(badge_rect, Qt.AlignCenter, self._change_type.value)
 
     def _paint_checkbox(self, painter: QPainter):
         """绘制复选框。"""

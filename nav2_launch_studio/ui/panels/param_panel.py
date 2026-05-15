@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QTextEdit, QToolButton, QFrame,
 )
 from PySide6.QtCore import Qt, Signal
+from nav2_launch_studio.core.change_tracker import ChangeType, get_highlight_color as _get_highlight_color
 
 
 class ParamPanelWidget(QWidget):
@@ -34,6 +35,7 @@ class ParamPanelWidget(QWidget):
         self._mode = "basic"
         self._param_widgets: dict[str, QWidget] = {}
         self._param_types: dict[str, str] = {}
+        self._highlight_wrappers: dict[str, QWidget] = {}  # 高亮包装控件
         self._init_ui()
 
     def _init_ui(self):
@@ -85,8 +87,15 @@ class ParamPanelWidget(QWidget):
         self._hint_label.setWordWrap(True)
         layout.addWidget(self._hint_label)
 
-    def load_params(self, node_name: str, params: dict = None):
-        """为节点加载参数控件。"""
+    def load_params(self, node_name: str, params: dict = None, changes: dict = None):
+        """为节点加载参数控件。
+
+        参数：
+            node_name: 节点名称
+            params: 参数字典
+
+            changes: 变更字典 {param_key: ChangeType}
+        """
         self._clear_params()
 
         self._current_node = node_name
@@ -94,6 +103,7 @@ class ParamPanelWidget(QWidget):
         self.node_label.setText(node_name)
         self._param_widgets.clear()
         self._param_types.clear()
+        self._highlight_wrappers.clear()
 
         if not params:
             self._hint_label.setText("该节点暂无自定义参数。\n"
@@ -108,7 +118,15 @@ class ParamPanelWidget(QWidget):
             widget = self._create_widget_for_type(dtype, value)
             self._param_widgets[key] = widget
             self._param_types[key] = dtype
-            self.param_layout.addRow(key, widget)
+
+            # 检查是否有变更，创建带高亮的行
+            change_type = changes.get(key, ChangeType.NONE) if changes else ChangeType.NONE
+            if change_type != ChangeType.NONE:
+                wrapper = self._create_highlight_wrapper(widget, change_type)
+                self._highlight_wrappers[key] = wrapper
+                self.param_layout.addRow(key, wrapper)
+            else:
+                self.param_layout.addRow(key, widget)
 
         self._update_yaml_editor()
 
@@ -133,6 +151,7 @@ class ParamPanelWidget(QWidget):
             self.param_layout.removeRow(0)
         self._param_widgets.clear()
         self._param_types.clear()
+        self._highlight_wrappers.clear()
 
     def _apply_mode(self):
         """根据当前模式切换表单/YAML 编辑器的可见性。"""
@@ -214,18 +233,26 @@ class ParamPanelWidget(QWidget):
 
         self._hint_label.setText(f"YAML 更改已应用（{len(new_params)} 个参数）")
 
-    def _rebuild_form(self, params: dict):
+    def _rebuild_form(self, params: dict, changes: dict = None):
         """从参数字典重建表单控件。"""
         self._clear_params()
         self._param_widgets.clear()
         self._param_types.clear()
+        self._highlight_wrappers.clear()
 
         for key, value in sorted(params.items()):
             dtype = self._detect_type(value)
             widget = self._create_widget_for_type(dtype, value)
             self._param_widgets[key] = widget
             self._param_types[key] = dtype
-            self.param_layout.addRow(key, widget)
+
+            change_type = changes.get(key, ChangeType.NONE) if changes else ChangeType.NONE
+            if change_type != ChangeType.NONE:
+                wrapper = self._create_highlight_wrapper(widget, change_type)
+                self._highlight_wrappers[key] = wrapper
+                self.param_layout.addRow(key, wrapper)
+            else:
+                self.param_layout.addRow(key, widget)
 
     def _set_widget_value(self, widget: QWidget, dtype: str, value):
         """设置控件的值。"""
@@ -348,6 +375,75 @@ class ParamPanelWidget(QWidget):
         self.mode_btn.setText("基础模式" if checked else "专家模式")
         self._apply_mode()
         self.mode_changed.emit(self._mode)
+
+    def set_param_highlights(self, node_name: str, changed_params: dict):
+        """为指定节点的参数设置变更高亮。
+
+        参数：
+            node_name: 节点名称（需与当前显示的节点一致）
+            changed_params: {param_key: ChangeType} 变更字典
+        """
+        if node_name != self._current_node:
+            return
+
+        # 先清除现有高亮
+        self._clear_highlights()
+
+        # 为每个变更的参数添加高亮
+        for param_key, change_type in changed_params.items():
+            widget = self._param_widgets.get(param_key)
+            if not widget:
+                continue
+
+            # 创建高亮包装
+            wrapper = self._create_highlight_wrapper(widget, change_type)
+            self._highlight_wrappers[param_key] = wrapper
+
+            # 替换表单布局中的行
+            self._replace_form_row(param_key, wrapper)
+
+    def _create_highlight_wrapper(self, widget: QWidget, change_type: ChangeType) -> QWidget:
+        """创建带高亮背景的包装控件。"""
+        color_tuple = _get_highlight_color(change_type)
+        wrapper = QWidget()
+        wrapper.setProperty("change_type", change_type.value)
+        if color_tuple:
+            r, g, b = color_tuple
+            wrapper.setStyleSheet(
+                f"background-color: rgb({r}, {g}, {b}); "
+                f"border-radius: 3px; padding: 2px;"
+            )
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.addWidget(widget)
+        return wrapper
+
+    def _replace_form_row(self, param_key: str, new_widget: QWidget):
+        """替换表单布局中指定参数键的行。"""
+        for i in range(self.param_layout.rowCount()):
+            label_item = self.param_layout.itemAt(i, QFormLayout.LabelRole)
+            if label_item and label_item.widget():
+                label_text = label_item.widget().text()
+                if label_text == param_key:
+                    # 移除旧行并插入新行
+                    field_item = self.param_layout.itemAt(i, QFormLayout.FieldRole)
+                    old_widget = field_item.widget() if field_item else None
+                    self.param_layout.removeRow(i)
+                    self.param_layout.insertRow(i, param_key, new_widget)
+                    # 如果旧控件是包装器，需要把原始控件取出来
+                    # 但这里 new_widget 已经包含原始控件，所以直接替换即可
+                    return
+
+    def _clear_highlights(self):
+        """清除所有参数行的高亮。"""
+        for key, wrapper in self._highlight_wrappers.items():
+            # 从包装器中取出原始控件
+            layout = wrapper.layout()
+            if layout and layout.count() > 0:
+                original_widget = layout.itemAt(0).widget()
+                if original_widget:
+                    self._replace_form_row(key, original_widget)
+        self._highlight_wrappers.clear()
 
 
 class CollapsibleDictWidget(QWidget):

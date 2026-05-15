@@ -15,6 +15,7 @@ from PySide6.QtGui import QKeySequence
 from nav2_launch_studio.core.project_manager import ProjectManager
 from nav2_launch_studio.core.yaml_importer import YamlImporter
 from nav2_launch_studio.core.template_manager import TemplateManager
+from nav2_launch_studio.core.change_tracker import ChangeTracker, ChangeType
 from nav2_launch_studio.ui.start_page import StartPageWidget
 from nav2_launch_studio.ui.wizard.project_wizard import ProjectWizard, RobotTypePage
 from nav2_launch_studio.ui.widgets.node_graph import NodeGraphWidget
@@ -94,6 +95,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._project_manager = ProjectManager()
+        self._change_tracker = ChangeTracker()
         self._projects_base_dir = os.path.expanduser("~/nav2_studio_projects")
         self.setWindowTitle("Nav2 Launch Studio")
         self.resize(1280, 800)
@@ -204,6 +206,9 @@ class MainWindow(QMainWindow):
             self._edit_info_btn.setEnabled(True)
             # 加载节点拓扑图
             self._node_graph.load_nodes(project.nodes)
+            # 初始化变更追踪基线
+            self._change_tracker.save_baseline(project.nodes, project.params)
+            self._node_graph.clear_all_badges()
             # 加载 BT 树选择器
             self._bt_tree_selector.load_builtin_templates()
             self._bt_tree_selector.detect_groot2()
@@ -402,6 +407,17 @@ class MainWindow(QMainWindow):
         """保存当前项目。"""
         if self._project_manager.current_project:
             self._project_manager.save()
+            # 清除变更高亮
+            self._change_tracker.clear_changes()
+            self._node_graph.clear_all_badges()
+            # 重新加载当前节点参数面板以清除高亮
+            project = self._project_manager.current_project
+            current_node = self._param_panel._current_node
+            if project and current_node:
+                node_params = project.params.get(current_node, {})
+                self._param_panel.load_params(current_node, node_params)
+            else:
+                self._param_panel._clear_highlights()
             self.statusBar().showMessage("项目已保存", 2000)
 
     def _on_save_as(self):
@@ -422,6 +438,17 @@ class MainWindow(QMainWindow):
 
         try:
             new_dir = self._project_manager.save_as(base_dir)
+            # 清除变更高亮
+            self._change_tracker.clear_changes()
+            self._node_graph.clear_all_badges()
+            # 重新加载当前节点参数面板以清除高亮
+            project = self._project_manager.current_project
+            current_node = self._param_panel._current_node
+            if project and current_node:
+                node_params = project.params.get(current_node, {})
+                self._param_panel.load_params(current_node, node_params)
+            else:
+                self._param_panel._clear_highlights()
             self._show_editor_page()
             self._refresh_start_page()
             self.statusBar().showMessage(f"项目已另存为：{new_dir}", 3000)
@@ -574,7 +601,9 @@ class MainWindow(QMainWindow):
         project = self._project_manager.current_project
         if project:
             node_params = project.params.get(node_name, {})
-            self._param_panel.load_params(node_name, node_params)
+            # 获取该节点的变更信息
+            changed_params = self._change_tracker.get_changed_params(node_name)
+            self._param_panel.load_params(node_name, node_params, changes=changed_params)
 
     def _on_node_toggled(self, node_name: str, enabled: bool):
         """节点启用/禁用状态变更，同步到 ProjectModel。"""
@@ -596,6 +625,10 @@ class MainWindow(QMainWindow):
         project.params[node_name] = {}
         project.touch()
         self._node_graph.load_nodes(project.nodes)
+        # 通知变更追踪器
+        self._change_tracker.notify_node_added(node_name)
+        # 更新节点徽标
+        self._node_graph.update_node_badge(node_name, ChangeType.ADDED)
         self.statusBar().showMessage(f"已添加自定义节点：{node_name}", 2000)
 
     def _on_param_changed(self, node_name: str, param_key: str, value):
@@ -607,6 +640,15 @@ class MainWindow(QMainWindow):
             project.params[node_name][param_key] = value
             self._sync_plugin_params(project, node_name, param_key, value)
             project.touch()
+            # 通知变更追踪器
+            self._change_tracker.notify_param_changed(node_name, param_key, value)
+            # 更新节点徽标
+            node_change = self._change_tracker.get_node_change_type(node_name)
+            self._node_graph.update_node_badge(node_name, node_change)
+            # 更新参数行高亮
+            self._param_panel.set_param_highlights(
+                node_name, self._change_tracker.get_changed_params(node_name)
+            )
 
     def _on_params_replaced(self, node_name: str, new_params: dict):
         """专家模式批量替换节点参数，完整替换 ProjectModel 中的数据。"""
@@ -616,6 +658,15 @@ class MainWindow(QMainWindow):
             for key, value in new_params.items():
                 self._sync_plugin_params(project, node_name, key, value)
             project.touch()
+            # 通知变更追踪器
+            self._change_tracker.notify_params_replaced(node_name, new_params)
+            # 更新节点徽标
+            node_change = self._change_tracker.get_node_change_type(node_name)
+            self._node_graph.update_node_badge(node_name, node_change)
+            # 更新参数行高亮
+            self._param_panel.set_param_highlights(
+                node_name, self._change_tracker.get_changed_params(node_name)
+            )
 
     def _sync_plugin_params(self, project, node_name: str, param_key: str, value):
         """将参数面板中编辑的插件参数同步到 model.plugins。"""
